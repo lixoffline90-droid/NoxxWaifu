@@ -7,15 +7,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
 from telegram.error import BadRequest, TelegramError
 
-from NoxxNetwork import (
-    application,
-    collection,
-    user_collection,
-    SUPPORT_CHAT,
-    UPDATE_CHAT,
-)
+from NoxxNetwork import application, collection, user_collection, SUPPORT_CHAT, UPDATE_CHAT
 from NoxxNetwork.rarity import rarity_symbol
-
 
 FORCE_JOIN_TEXT = (
     "🔔 <b>ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴛʜᴇ ғᴏʟʟᴏᴡɪɴɢ ᴛᴏ ᴄᴏɴᴛɪɴᴜᴇ:</b>\n\n"
@@ -25,13 +18,12 @@ FORCE_JOIN_TEXT = (
 
 
 def _chat_ref(value):
-    """Normalize a public @username, t.me link, or numeric chat id."""
     if value is None:
         return None
     value = str(value).strip()
     if not value:
         return None
-    if value.startswith("https://t.me/") or value.startswith("http://t.me/"):
+    if value.startswith(("https://t.me/", "http://t.me/")):
         value = value.rstrip("/").split("/")[-1]
     elif value.startswith("t.me/"):
         value = value.rstrip("/").split("/")[-1]
@@ -53,33 +45,25 @@ def _join_url(value):
 
 
 async def _is_joined(context, user_id, chat_value):
-    """Return (joined, verified) for one required chat.
-
-    Resolve the configured username/link to a Telegram chat first, then query
-    membership by the resolved numeric id. This is more reliable than passing
-    a raw environment value through the membership request.
-    """
-    chat_ref = _chat_ref(chat_value)
-    if not chat_ref:
+    ref = _chat_ref(chat_value)
+    if not ref:
         return True, True
-
     try:
-        chat = await context.bot.get_chat(chat_ref)
+        chat = await context.bot.get_chat(ref)
         member = await context.bot.get_chat_member(chat_id=chat.id, user_id=user_id)
-        status = getattr(member, "status", "")
+        status = str(getattr(member, "status", "")).lower()
         joined = status in {"creator", "administrator", "member"}
         if status == "restricted":
             joined = bool(getattr(member, "is_member", False))
         return joined, True
     except TelegramError as exc:
         context.application.logger.warning(
-            "Force-join verification failed: user=%s chat=%r error=%s",
-            user_id, chat_ref, exc,
+            "Force join check failed: chat=%r user=%s error=%s", ref, user_id, exc
         )
         return False, False
 
 
-async def _force_join_markup(context):
+def _force_join_markup():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📢 Jᴏɪɴ Uᴘᴅᴀᴛᴇ Cʜᴀɴɴᴇʟ ↗", url=_join_url(UPDATE_CHAT))],
         [InlineKeyboardButton("💬 Jᴏɪɴ Sᴜᴘᴘᴏʀᴛ Gʀᴏᴜᴘ ↗", url=_join_url(SUPPORT_CHAT))],
@@ -87,37 +71,39 @@ async def _force_join_markup(context):
     ])
 
 
-async def ensure_joined(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    joined_update, verified_update = await _is_joined(context, user_id, UPDATE_CHAT)
-    joined_support, verified_support = await _is_joined(context, user_id, SUPPORT_CHAT)
-
-    if verified_update and verified_support and joined_update and joined_support:
-        return True
-
-    markup = await _force_join_markup(context)
-    if not verified_update or not verified_support:
-        text = (
-            "⚠️ <b>Jᴏɪɴ Vᴇʀɪғɪᴄᴀᴛɪᴏɴ Uɴᴀᴠᴀɪʟᴀʙʟᴇ</b>\n\n"
-            "Tʜᴇ ʙᴏᴛ ᴄᴏᴜʟᴅɴ'ᴛ ᴠᴇʀɪғʏ ᴏɴᴇ ᴏғ ᴛʜᴇ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀᴛs.\n\n"
-            "Mᴀᴋᴇ sᴜʀᴇ ᴛʜᴇ ʙᴏᴛ ɪs ᴀɴ ᴀᴅᴍɪɴ ɪɴ ʙᴏᴛʜ ᴄʜᴀᴛs, ᴛʜᴇɴ ᴛᴀᴘ <b>↻ Cʜᴇᴄᴋ Aɢᴀɪɴ</b>."
+async def _show_force_join(update, context, verification_error=False):
+    text = FORCE_JOIN_TEXT
+    if verification_error:
+        text += (
+            "\n\n⚠️ <b>ᴠᴇʀɪғɪᴄᴀᴛɪᴏɴ ᴜɴᴀᴠᴀɪʟᴀʙʟᴇ</b>\n"
+            "Mᴀᴋᴇ sᴜʀᴇ ᴛʜᴇ ʙᴏᴛ ɪs ᴀᴅᴍɪɴ ɪɴ ʙᴏᴛʜ ᴄʜᴀᴛs ᴀɴᴅ ᴛʜᴇ ᴄʜᴀᴛ ᴜsᴇʀɴᴀᴍᴇs ᴀʀᴇ ᴄᴏʀʀᴇᴄᴛ."
         )
-    else:
-        text = FORCE_JOIN_TEXT
-
+    markup = _force_join_markup()
     if update.message:
-        await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
-    else:
-        query = update.callback_query
-        try:
+        return await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
+    query = update.callback_query
+    try:
+        if query.message.photo:
+            await query.edit_message_caption(caption=text, parse_mode="HTML", reply_markup=markup)
+        else:
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
-        except BadRequest:
-            pass
+    except BadRequest:
+        pass
+
+
+async def ensure_joined(update, context):
+    user_id = update.effective_user.id
+    u_joined, u_ok = await _is_joined(context, user_id, UPDATE_CHAT)
+    s_joined, s_ok = await _is_joined(context, user_id, SUPPORT_CHAT)
+    if u_ok and s_ok and u_joined and s_joined:
+        return True
+    await _show_force_join(update, context, verification_error=not (u_ok and s_ok))
     return False
 
 
-async def harem(update: Update, context: CallbackContext, page=0) -> None:
-    if not await ensure_joined(update, context):
+async def harem(update: Update, context: CallbackContext, page=0, checked=False) -> None:
+    # Do not run the membership check twice when called by Check Again.
+    if not checked and not await ensure_joined(update, context):
         return
 
     user_id = update.effective_user.id
@@ -133,38 +119,28 @@ async def harem(update: Update, context: CallbackContext, page=0) -> None:
     characters = sorted(user['characters'], key=lambda x: (str(x.get('anime', '')), str(x.get('id', ''))))
     character_counts = {}
     for character in characters:
-        character_counts[character['id']] = character_counts.get(character['id'], 0) + 1
-
-    unique_characters = list({character['id']: character for character in characters}.values())
+        character_counts[str(character['id'])] = character_counts.get(str(character['id']), 0) + 1
+    unique_characters = list({str(character['id']): character for character in characters}.values())
     total_pages = max(1, math.ceil(len(unique_characters) / 15))
     page = max(0, min(page, total_pages - 1))
     current_characters = unique_characters[page * 15:(page + 1) * 15]
+    favorite_ids = {str(x) for x in user.get('favorites', [])}
 
-    favorite_ids = set(user.get('favorites', []))
     harem_message = (
         f"🌸 <b>{escape(update.effective_user.first_name)}'s Hᴀʀᴇᴍ</b>\n"
         f"<i>Pᴀɢᴇ {page + 1}/{total_pages} • {len(user['characters'])} Cᴏʟʟᴇᴄᴛᴇᴅ</i>\n"
     )
-
     for anime, anime_chars in groupby(current_characters, key=lambda x: x.get('anime', 'Unknown')):
         anime_chars = list(anime_chars)
         total_anime = await collection.count_documents({'anime': anime})
         harem_message += f"\n<b>✦ {escape(str(anime))}</b> <i>{len(anime_chars)}/{total_anime}</i>\n"
         for character in anime_chars:
-            star = " ♡" if character['id'] in favorite_ids else ""
+            cid = str(character['id'])
+            star = " ♡" if cid in favorite_ids else ""
             symbol = escape(rarity_symbol(character.get('rarity')))
-            harem_message += (
-                f"↪ <b>[{symbol}]</b> {escape(str(character['id']))} "
-                f"{escape(str(character['name']))} ×{character_counts[character['id']]}{star}\n"
-            )
+            harem_message += f"↪ <b>[{symbol}]</b> {escape(cid)} {escape(str(character['name']))} ×{character_counts[cid]}{star}\n"
 
-    keyboard = [[
-        InlineKeyboardButton(
-            f"♡ Sᴇᴇ Cᴏʟʟᴇᴄᴛɪᴏɴ • {len(user['characters'])}",
-            switch_inline_query_current_chat=f"collection.{user_id}"
-        )
-    ]]
-
+    keyboard = [[InlineKeyboardButton(f"♡ Sᴇᴇ Cᴏʟʟᴇᴄᴛɪᴏɴ • {len(user['characters'])}", switch_inline_query_current_chat=f"collection.{user_id}")]]
     if total_pages > 1:
         nav = []
         if page > 0:
@@ -173,14 +149,10 @@ async def harem(update: Update, context: CallbackContext, page=0) -> None:
         if page < total_pages - 1:
             nav.append(InlineKeyboardButton("Nᴇxᴛ ›", callback_data=f"harem:{page + 1}:{user_id}"))
         keyboard.append(nav)
-
     keyboard.append([InlineKeyboardButton("↻ Rᴇғʀᴇsʜ", callback_data=f"harem:{page}:{user_id}")])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    selected = next((c for c in characters if c['id'] in favorite_ids and c.get('img_url')), None)
-    if not selected:
-        selected = random.choice(characters)
-
+    selected = next((c for c in characters if str(c['id']) in favorite_ids and c.get('img_url')), None) or random.choice(characters)
     image = selected.get('img_url')
     if update.message:
         if image:
@@ -188,7 +160,6 @@ async def harem(update: Update, context: CallbackContext, page=0) -> None:
         else:
             await update.message.reply_text(harem_message, parse_mode='HTML', reply_markup=reply_markup)
         return
-
     query = update.callback_query
     try:
         if image and query.message.photo:
@@ -199,25 +170,23 @@ async def harem(update: Update, context: CallbackContext, page=0) -> None:
         pass
 
 
-async def harem_callback(update: Update, context: CallbackContext) -> None:
+async def harem_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
-
-    if query.data == "harem_check":
+    if query.data == 'harem_check':
         if await ensure_joined(update, context):
-            await harem(update, context, 0)
+            await harem(update, context, 0, checked=True)
         return
-
-    _, page, user_id = query.data.split(':')
-    page = int(page)
-    user_id = int(user_id)
-
-    if query.from_user.id != user_id:
+    try:
+        _, page, owner_id = query.data.split(':')
+        page, owner_id = int(page), int(owner_id)
+    except (ValueError, AttributeError):
+        return
+    if query.from_user.id != owner_id:
         await query.answer("Iᴛ's Nᴏᴛ Yᴏᴜʀ Hᴀʀᴇᴍ.", show_alert=True)
         return
-
-    await harem(update, context, page)
+    await harem(update, context, page, checked=True)
 
 
 application.add_handler(CommandHandler(["harem", "collection"], harem, block=False))
-application.add_handler(CallbackQueryHandler(harem_callback, pattern=r'^(?:harem|harem_check)', block=False))
+application.add_handler(CallbackQueryHandler(harem_callback, pattern=r'^harem(?:_|:)', block=False))
