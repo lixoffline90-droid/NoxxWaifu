@@ -33,17 +33,33 @@ async def start(update: Update, context: CallbackContext) -> None:
     if update.effective_chat.type== "private":
         
         
-        caption = f"""
-         ***Heyyyy...***
+        caption = """🎐 ʜᴇʏ, ᴡᴀɪғᴜ ʟᴏᴠᴇʀ...!  𝐋ɪ𝐗 ♡
 
-***I am Grabbing Your Waifu Bot...Add Me in Your group.. And I will send Random Characters After.. every 100 messages in Group... Use /grab to.. Collect that Characters in Your Collection.. and see Collection by using /Harem... So add in Your groups and Collect Your harem***
-        """
+◎ ─━──━─❖─━──━─ ◎
+
+⍟ ɪ'ᴍ ʏᴏᴜʀ ᴡᴀɪғᴜ ᴄᴀᴛᴄʜᴇʀ,
+ᴀ ʟɪᴛᴛʟᴇ ʙᴏᴛ ᴛʜᴀᴛ ʙʀɪɴɢs ʀᴀɴᴅᴏᴍ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ. 🎴
+
+⍟ ᴄᴀᴛᴄʜ ᴛʜᴇᴍ ʙᴇғᴏʀᴇ sᴏᴍᴇᴏɴᴇ ᴇʟsᴇ ᴅᴏᴇs,
+ᴄᴏʟʟᴇᴄᴛ ʏᴏᴜʀ ғᴀᴠᴏᴜʀɪᴛᴇs ᴀɴᴅ ʙᴜɪʟᴅ ʏᴏᴜʀ ᴏᴡɴ ᴡᴀɪғᴜ ᴡᴏʀʟᴅ. ♡
+
+⍟ ʀᴇᴀᴅʏ ᴛᴏ sᴛᴀʀᴛ ᴄᴏʟʟᴇᴄᴛɪɴɢ?
+ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴀɴᴅ ʟᴇᴛ ᴛʜᴇ ᴄᴀᴛᴄʜɪɴɢ ʙᴇɢɪɴ! ✨
+
+◎ ─━──━─❖─━──━─ ◎
+
+💌 **Qᴜɪᴄᴋ Sᴛᴀʀᴛ**
+╰➤ /grab — ᴄᴀᴛᴄʜ ᴀ ᴡᴀɪғᴜ
+╰➤ /harem — ᴠɪᴇᴡ ʏᴏᴜʀ ᴄᴏʟʟᴇᴄᴛɪᴏɴ
+╰➤ /help — ᴇxᴘʟᴏʀᴇ ᴍᴏʀᴇ
+
+🌸 **ᴄᴀᴛᴄʜ ᴛʜᴇᴍ ᴀʟʟ. ♡**"""
         keyboard = [
-            [InlineKeyboardButton("ADD ME", url=f'http://t.me/{BOT_USERNAME}?startgroup=new')],
-            [InlineKeyboardButton("SUPPORT", url=f'https://t.me/{SUPPORT_CHAT}'),
-            InlineKeyboardButton("UPDATES", url=f'https://t.me/{UPDATE_CHAT}')],
-            [InlineKeyboardButton("HELP", callback_data='help')]
-               ]
+            [InlineKeyboardButton("♡ Aᴅᴅ Mᴇ Tᴏ Gʀᴏᴜᴘ", url=f'http://t.me/{BOT_USERNAME}?startgroup=new')],
+            [InlineKeyboardButton("✦ Sᴜᴘᴘᴏʀᴛ", url=f'https://t.me/{SUPPORT_CHAT}'),
+             InlineKeyboardButton("✧ Uᴘᴅᴀᴛᴇs", url=f'https://t.me/{UPDATE_CHAT}')],
+            [InlineKeyboardButton("❖ Hᴇʟᴘ & Cᴏᴍᴍᴀɴᴅs", callback_data='help')]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         photo_url = random.choice(PHOTO_URL)
 
@@ -106,19 +122,34 @@ async def button(update: Update, context: CallbackContext) -> None:
 
     elif query.data == 'back':
 
-        caption = f"""
-        ***Heyyyy...***
+        caption = """🎐 ʜᴇʏ, ᴡᴀɪғᴜ ʟᴏᴠᴇʀ...!  𝐋ɪ𝐗 ♡
 
-***I am Grabbing Your Waifu Bot...Add Me in Your group.. And I will send Random Characters After.. every 100 messages in Group... Use /grab to.. Collect that Characters in Your Collection.. and see Collection by using /Harem... So add in Your groups and Collect Your harem***
-            """
+◎ ─━──━─❖─━──━─ ◎
 
-        
+⍟ ɪ'ᴍ ʏᴏᴜʀ ᴡᴀɪғᴜ ᴄᴀᴛᴄʜᴇʀ,
+ᴀ ʟɪᴛᴛʟᴇ ʙᴏᴛ ᴛʜᴀᴛ ʙʀɪɴɢs ʀᴀɴᴅᴏᴍ ᴀɴɪᴍᴇ ᴄʜᴀʀᴀᴄᴛᴇʀs ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ. 🎴
+
+⍟ ᴄᴀᴛᴄʜ ᴛʜᴇᴍ ʙᴇғᴏʀᴇ sᴏᴍᴇᴏɴᴇ ᴇʟsᴇ ᴅᴏᴇs,
+ᴄᴏʟʟᴇᴄᴛ ʏᴏᴜʀ ғᴀᴠᴏᴜʀɪᴛᴇs ᴀɴᴅ ʙᴜɪʟᴅ ʏᴏᴜʀ ᴏᴡɴ ᴡᴀɪғᴜ ᴡᴏʀʟᴅ. ♡
+
+⍟ ʀᴇᴀᴅʏ ᴛᴏ sᴛᴀʀᴛ ᴄᴏʟʟᴇᴄᴛɪɴɢ?
+ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴀɴᴅ ʟᴇᴛ ᴛʜᴇ ᴄᴀᴛᴄʜɪɴɢ ʙᴇɢɪɴ! ✨
+
+◎ ─━──━─❖─━──━─ ◎
+
+💌 **Qᴜɪᴄᴋ Sᴛᴀʀᴛ**
+╰➤ /grab — ᴄᴀᴛᴄʜ ᴀ ᴡᴀɪғᴜ
+╰➤ /harem — ᴠɪᴇᴡ ʏᴏᴜʀ ᴄᴏʟʟᴇᴄᴛɪᴏɴ
+╰➤ /help — ᴇxᴘʟᴏʀᴇ ᴍᴏʀᴇ
+
+🌸 **ᴄᴀᴛᴄʜ ᴛʜᴇᴍ ᴀʟʟ. ♡**"""
+
         keyboard = [
-            [InlineKeyboardButton("ADD ME", url=f'http://t.me/{BOT_USERNAME}?startgroup=new')],
-            [InlineKeyboardButton("SUPPORT", url=f'https://t.me/{SUPPORT_CHAT}'),
-            InlineKeyboardButton("UPDATES", url=f'https://t.me/{UPDATE_CHAT}')],
-            [InlineKeyboardButton("HELP", callback_data='help')]
-               ]
+            [InlineKeyboardButton("♡ Aᴅᴅ Mᴇ Tᴏ Gʀᴏᴜᴘ", url=f'http://t.me/{BOT_USERNAME}?startgroup=new')],
+            [InlineKeyboardButton("✦ Sᴜᴘᴘᴏʀᴛ", url=f'https://t.me/{SUPPORT_CHAT}'),
+             InlineKeyboardButton("✧ Uᴘᴅᴀᴛᴇs", url=f'https://t.me/{UPDATE_CHAT}')],
+            [InlineKeyboardButton("❖ Hᴇʟᴘ & Cᴏᴍᴍᴀɴᴅs", callback_data='help')]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await context.bot.edit_message_caption(chat_id=update.effective_chat.id, message_id=query.message.message_id, caption=caption, reply_markup=reply_markup, parse_mode='markdown')
