@@ -50,16 +50,27 @@ def _join_url(value):
 
 
 async def _is_joined(context, user_id, chat_ref):
+    """Return (joined, verified).
+
+    Telegram only reliably exposes other users' membership when the bot is
+    present (and for many chats, an administrator) in the target chat.
+    Never treat an API error as a successful join: doing so makes the
+    force-join check appear to work while silently skipping verification.
+    """
     if not chat_ref:
-        return True
+        return True, True
     try:
         member = await context.bot.get_chat_member(chat_id=chat_ref, user_id=user_id)
-        return member.status in {"creator", "administrator", "member"} or (
+        joined = member.status in {"creator", "administrator", "member"} or (
             member.status == "restricted" and getattr(member, "is_member", False)
         )
-    except (TelegramError, BadRequest):
-        # If the bot cannot verify the configured chat, don't lock users out.
-        return True
+        return joined, True
+    except (TelegramError, BadRequest) as exc:
+        context.application.logger.warning(
+            "Could not verify membership for user %s in %s: %s",
+            user_id, chat_ref, exc,
+        )
+        return False, False
 
 
 async def _force_join_markup(context):
@@ -72,21 +83,34 @@ async def _force_join_markup(context):
 
 async def ensure_joined(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
-    joined_update = await _is_joined(context, user_id, _chat_ref(UPDATE_CHAT))
-    joined_support = await _is_joined(context, user_id, _chat_ref(SUPPORT_CHAT))
+    joined_update, verified_update = await _is_joined(
+        context, user_id, _chat_ref(UPDATE_CHAT)
+    )
+    joined_support, verified_support = await _is_joined(
+        context, user_id, _chat_ref(SUPPORT_CHAT)
+    )
 
-    if joined_update and joined_support:
+    if verified_update and verified_support and joined_update and joined_support:
         return True
 
     markup = await _force_join_markup(context)
+    if not verified_update or not verified_support:
+        text = (
+            "⚠️ <b>Jᴏɪɴ Vᴇʀɪғɪᴄᴀᴛɪᴏɴ Uɴᴀᴠᴀɪʟᴀʙʟᴇ</b>\n\n"
+            "Tʜᴇ ʙᴏᴛ ᴄᴀɴ'ᴛ ᴠᴇʀɪғʏ ʏᴏᴜʀ ᴍᴇᴍʙᴇʀsʜɪᴘ ʀɪɢʜᴛ ɴᴏᴡ.\n\n"
+            "Mᴀᴋᴇ sᴜʀᴇ ᴛʜᴇ ʙᴏᴛ ɪs ᴀᴅᴍɪɴ ɪɴ ʙᴏᴛʜ ᴛʜᴇ ᴜᴘᴅᴀᴛᴇ ᴄʜᴀɴɴᴇʟ ᴀɴᴅ sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ, ᴛʜᴇɴ ᴛᴀᴘ <b>↻ Cʜᴇᴄᴋ Aɢᴀɪɴ</b>."
+        )
+    else:
+        text = FORCE_JOIN_TEXT
+
     if update.message:
-        await update.message.reply_text(FORCE_JOIN_TEXT, parse_mode="HTML", reply_markup=markup)
+        await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
     else:
         query = update.callback_query
         try:
-            await query.edit_message_text(FORCE_JOIN_TEXT, parse_mode="HTML", reply_markup=markup)
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
         except BadRequest:
-            await query.message.reply_text(FORCE_JOIN_TEXT, parse_mode="HTML", reply_markup=markup)
+            await query.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
     return False
 
 
