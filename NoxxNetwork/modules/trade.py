@@ -172,8 +172,10 @@ async def gift(client, message):
         ]
     )
 
+    char_emoji = str(character.get('emoji') or '').strip()
+    name_line = escape(str(character.get('name', 'Unknown'))) + (f" ({escape(char_emoji)})" if char_emoji else '')
     caption = (
-        f"<b>{escape(str(character.get('name', 'Unknown')))} (🌸)</b>\n"
+        f"<b>{name_line}</b>\n"
         f"Rarity: {escape(str(character.get('rarity', 'Unknown')))}\n"
         f"Anime: {escape(str(character.get('anime', 'Unknown')))}\n"
         f"ID: <code>{escape(str(character.get('id', character_id)))}</code>"
