@@ -16,18 +16,18 @@ async def change_time(client: Client, message: Message):
         
 
     if member.status not in ADMINS :
-        await message.reply_text('You are not an Admin.')
+        await message.reply_text('⚠️ Oɴʟʏ ɢʀᴏᴜᴘ ᴀᴅᴍɪɴs ᴄᴀɴ ᴜsᴇ ᴛʜɪs.')
         return
 
     try:
         args = message.command
         if len(args) != 2:
-            await message.reply_text('Please use: /changetime NUMBER')
+            await message.reply_text('⚙️ U sᴀɢᴇ: /changetime 100')
             return
 
         new_frequency = int(args[1])
         if new_frequency < 100:
-            await message.reply_text('The message frequency must be greater than or equal to 100.')
+            await message.reply_text('⚠️ Fʀᴇǫᴜᴇɴᴄʏ ᴍᴜsᴛ ʙᴇ 100 ᴏʀ ʜɪɢʜᴇʀ.')
             return
 
     
@@ -38,6 +38,6 @@ async def change_time(client: Client, message: Message):
             return_document=ReturnDocument.AFTER
         )
 
-        await message.reply_text(f'Successfully changed {new_frequency}')
+        await message.reply_text(f'✅ Sᴘᴀᴡɴ Fʀᴇǫᴜᴇɴᴄʏ Uᴘᴅᴀᴛᴇᴅ\n\n✦ Nᴇᴡ ғʀᴇǫᴜᴇɴᴄʏ: {new_frequency} ᴍᴇssᴀɢᴇs')
     except Exception as e:
-        await message.reply_text(f'Failed to change {str(e)}')
+        await message.reply_text(f'❌ Fᴀɪʟᴇᴅ Tᴏ Uᴘᴅᴀᴛᴇ\n\n{str(e)}')
