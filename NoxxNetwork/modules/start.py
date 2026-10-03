@@ -67,19 +67,39 @@ async def button(update: Update, context: CallbackContext) -> None:
 
     if query.data == 'help':
         help_text = """
-    ***Help Section:***
-    
-***/guess: To Guess character (only works in group)***
-***/fav: Add Your fav***
-***/trade : To trade Characters***
-***/gift: Give any Character from Your Collection to another user.. (only works in groups)***
-***/collection: To see Your Collection***
-***/topgroups : See Top Groups.. Ppl Guesses Most in that Groups***
-***/top: Too See Top Users***
-***/ctop : Your ChatTop***
-***/changetime: Change Character appear time (only works in Groups)***
-   """
-        help_keyboard = [[InlineKeyboardButton("⤾ Bᴀᴄᴋ", callback_data='back')]]
+🎐 **Wᴀɪғᴜ Cᴀᴛᴄʜᴇʀ — Hᴇʟᴘ Cᴇɴᴛᴇʀ** ♡
+
+◎ ─━──━─❖─━──━─ ◎
+
+🌸 **Cᴀᴛᴄʜ & Cᴏʟʟᴇᴄᴛ**
+⍟ `/guess` — Cᴀᴛᴄʜ ᴛʜᴇ ᴡᴀɪғᴜ ɪɴ ᴀ ɢʀᴏᴜᴘ
+⍟ `/grab` — Cᴀᴛᴄʜ ᴡɪᴛʜ ᴛʜᴇ sᴀᴍᴇ ɢᴜᴇss sʏsᴛᴇᴍ
+⍟ `/fav` — Sᴀᴠᴇ ʏᴏᴜʀ ғᴀᴠᴏᴜʀɪᴛᴇ ᴄʜᴀʀᴀᴄᴛᴇʀ
+⍟ `/harem` — Vɪᴇᴡ ʏᴏᴜʀ ᴡᴀɪғᴜ ᴄᴏʟʟᴇᴄᴛɪᴏɴ
+
+💌 **Tʀᴀᴅᴇ & Gɪғᴛ**
+⍟ `/trade` — Tʀᴀᴅᴇ ᴀ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴡɪᴛʜ ᴀ ᴜsᴇʀ
+⍟ `/gift` — Gɪғᴛ ᴀ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴛᴏ ᴀɴᴏᴛʜᴇʀ ᴜsᴇʀ
+
+🏆 **Lᴇᴀᴅᴇʀʙᴏᴀʀᴅs & Sᴛᴀᴛs**
+⍟ `/top` — Sᴇᴇ ᴛᴏᴘ ᴡᴀɪғᴜ ᴄᴏʟʟᴇᴄᴛᴏʀs
+⍟ `/ctop` — Cʜᴀᴛ ʟᴇᴀᴅᴇʀʙᴏᴀʀᴅ
+⍟ `/topgroups` — Sᴇᴇ ᴛᴏᴘ ɢʀᴏᴜᴘs
+⍟ `/stats` — Vɪᴇᴡ ʙᴏᴛ sᴛᴀᴛɪsᴛɪᴄs
+
+⚙️ **Gʀᴏᴜᴘ Tᴏᴏʟs**
+⍟ `/changetime` — Cʜᴀɴɢᴇ ᴄʜᴀʀᴀᴄᴛᴇʀ sᴘᴀᴡɴ ᴛɪᴍᴇ
+
+◎ ─━──━─❖─━──━─ ◎
+
+✨ **Aᴅᴅ ᴍᴇ ᴛᴏ ᴀ ɢʀᴏᴜᴘ, ᴡᴀɪᴛ ғᴏʀ ᴀ ᴡᴀɪғᴜ ᴛᴏ sᴘᴀᴡɴ & ʙᴇ ᴛʜᴇ ғɪʀsᴛ ᴛᴏ ᴄᴀᴛᴄʜ ʜᴇʀ!**
+"""
+        help_keyboard = [
+            [InlineKeyboardButton("♡ Aᴅᴅ Mᴇ", url=f'http://t.me/{BOT_USERNAME}?startgroup=new')],
+            [InlineKeyboardButton("✦ Sᴜᴘᴘᴏʀᴛ", url=f'https://t.me/{SUPPORT_CHAT}'),
+             InlineKeyboardButton("✧ Uᴘᴅᴀᴛᴇs", url=f'https://t.me/{UPDATE_CHAT}')],
+            [InlineKeyboardButton("⤾ Bᴀᴄᴋ Tᴏ Mᴇɴᴜ", callback_data='back')]
+        ]
         reply_markup = InlineKeyboardMarkup(help_keyboard)
         
         await context.bot.edit_message_caption(chat_id=update.effective_chat.id, message_id=query.message.message_id, caption=help_text, reply_markup=reply_markup, parse_mode='markdown')
