@@ -25,13 +25,16 @@ FORCE_JOIN_TEXT = (
 
 
 def _chat_ref(value):
-    if not value:
+    """Normalize a public @username, t.me link, or numeric chat id."""
+    if value is None:
         return None
     value = str(value).strip()
-    if value.startswith("https://t.me/"):
-        return "@" + value.rstrip("/").split("/")[-1].lstrip("@")
-    if value.startswith("t.me/"):
-        return "@" + value.rstrip("/").split("/")[-1].lstrip("@")
+    if not value:
+        return None
+    if value.startswith("https://t.me/") or value.startswith("http://t.me/"):
+        value = value.rstrip("/").split("/")[-1]
+    elif value.startswith("t.me/"):
+        value = value.rstrip("/").split("/")[-1]
     if value.startswith("@"):
         return value
     try:
@@ -44,30 +47,33 @@ def _join_url(value):
     if not value:
         return "https://t.me/"
     value = str(value).strip()
-    if value.startswith("http://") or value.startswith("https://"):
+    if value.startswith(("http://", "https://")):
         return value
     return f"https://t.me/{value.lstrip('@')}"
 
 
-async def _is_joined(context, user_id, chat_ref):
-    """Return (joined, verified).
+async def _is_joined(context, user_id, chat_value):
+    """Return (joined, verified) for one required chat.
 
-    Telegram only reliably exposes other users' membership when the bot is
-    present (and for many chats, an administrator) in the target chat.
-    Never treat an API error as a successful join: doing so makes the
-    force-join check appear to work while silently skipping verification.
+    Resolve the configured username/link to a Telegram chat first, then query
+    membership by the resolved numeric id. This is more reliable than passing
+    a raw environment value through the membership request.
     """
+    chat_ref = _chat_ref(chat_value)
     if not chat_ref:
         return True, True
+
     try:
-        member = await context.bot.get_chat_member(chat_id=chat_ref, user_id=user_id)
-        joined = member.status in {"creator", "administrator", "member"} or (
-            member.status == "restricted" and getattr(member, "is_member", False)
-        )
+        chat = await context.bot.get_chat(chat_ref)
+        member = await context.bot.get_chat_member(chat_id=chat.id, user_id=user_id)
+        status = getattr(member, "status", "")
+        joined = status in {"creator", "administrator", "member"}
+        if status == "restricted":
+            joined = bool(getattr(member, "is_member", False))
         return joined, True
-    except (TelegramError, BadRequest) as exc:
+    except TelegramError as exc:
         context.application.logger.warning(
-            "Could not verify membership for user %s in %s: %s",
+            "Force-join verification failed: user=%s chat=%r error=%s",
             user_id, chat_ref, exc,
         )
         return False, False
@@ -83,12 +89,8 @@ async def _force_join_markup(context):
 
 async def ensure_joined(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
-    joined_update, verified_update = await _is_joined(
-        context, user_id, _chat_ref(UPDATE_CHAT)
-    )
-    joined_support, verified_support = await _is_joined(
-        context, user_id, _chat_ref(SUPPORT_CHAT)
-    )
+    joined_update, verified_update = await _is_joined(context, user_id, UPDATE_CHAT)
+    joined_support, verified_support = await _is_joined(context, user_id, SUPPORT_CHAT)
 
     if verified_update and verified_support and joined_update and joined_support:
         return True
@@ -97,8 +99,8 @@ async def ensure_joined(update: Update, context: CallbackContext):
     if not verified_update or not verified_support:
         text = (
             "⚠️ <b>Jᴏɪɴ Vᴇʀɪғɪᴄᴀᴛɪᴏɴ Uɴᴀᴠᴀɪʟᴀʙʟᴇ</b>\n\n"
-            "Tʜᴇ ʙᴏᴛ ᴄᴀɴ'ᴛ ᴠᴇʀɪғʏ ʏᴏᴜʀ ᴍᴇᴍʙᴇʀsʜɪᴘ ʀɪɢʜᴛ ɴᴏᴡ.\n\n"
-            "Mᴀᴋᴇ sᴜʀᴇ ᴛʜᴇ ʙᴏᴛ ɪs ᴀᴅᴍɪɴ ɪɴ ʙᴏᴛʜ ᴛʜᴇ ᴜᴘᴅᴀᴛᴇ ᴄʜᴀɴɴᴇʟ ᴀɴᴅ sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ, ᴛʜᴇɴ ᴛᴀᴘ <b>↻ Cʜᴇᴄᴋ Aɢᴀɪɴ</b>."
+            "Tʜᴇ ʙᴏᴛ ᴄᴏᴜʟᴅɴ'ᴛ ᴠᴇʀɪғʏ ᴏɴᴇ ᴏғ ᴛʜᴇ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀᴛs.\n\n"
+            "Mᴀᴋᴇ sᴜʀᴇ ᴛʜᴇ ʙᴏᴛ ɪs ᴀɴ ᴀᴅᴍɪɴ ɪɴ ʙᴏᴛʜ ᴄʜᴀᴛs, ᴛʜᴇɴ ᴛᴀᴘ <b>↻ Cʜᴇᴄᴋ Aɢᴀɪɴ</b>."
         )
     else:
         text = FORCE_JOIN_TEXT
@@ -110,7 +112,7 @@ async def ensure_joined(update: Update, context: CallbackContext):
         try:
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
         except BadRequest:
-            await query.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
+            pass
     return False
 
 
