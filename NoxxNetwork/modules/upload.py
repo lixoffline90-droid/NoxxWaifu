@@ -6,14 +6,33 @@ from telegram.ext import CommandHandler, CallbackContext
 
 from NoxxNetwork import application, sudo_users, collection, db, CHARA_CHANNEL_ID, SUPPORT_CHAT
 
-WRONG_FORMAT_TEXT = """Wrong ❌️ format...  eg. /upload Img_url muzan-kibutsuji Demon-slayer 3
+WRONG_FORMAT_TEXT = """Wrong ❌️ format...  eg. /upload Img_url muzan-kibutsuji Demon-slayer 1
 
 img_url character-name anime-name rarity-number
 
-use rarity number accordingly rarity Map
+use rarity number accordingly:
 
-rarity_map = 1 (⚪️ Common), 2 (🟣 Rare) , 3 (🟡 Legendary), 4 (🟢 Medium), 5 (💮 special edition), 6 (🔮 premium edition), 7 (🎗️ Supreme)"""
-
+1 ⚪ Common
+2 🌟 Galaxies
+3 🌤️ Summer
+4 🍬 Galactic
+5 🎄 Christmas
+6 🎨 Holi edition
+7 🐦‍🔥 Marvelous
+8 💮 Exclusive
+9 🔖 Manga rush
+10 🔮 Mythical
+11 🛖 Tribe
+12 🛷 X-Mas
+13 🟡 Legendary
+14 🟢 Medium
+15 🟣 Rare
+16 🧣 Winters
+17 🪁 Skyrise
+18 🪔 Diwali edition
+19 🪢 Corrupted
+20 🪼 Exotic
+21 🫧 Special"""
 
 
 async def get_next_sequence_number(sequence_name):
@@ -48,11 +67,11 @@ async def upload(update: Update, context: CallbackContext) -> None:
             await update.message.reply_text('Invalid URL.')
             return
 
-        rarity_map = {1: "⚪ Common", 2: "🟣 Rare", 3: "🟡 Legendary", 4: "🟢 Medium", 5: "💮 special edition", 6: "🔮 premium edition",7: "🎗️ Supreme"}
+        rarity_map = {1: '⚪ Common', 2: '🌟 Galaxies', 3: '🌤️ Summer', 4: '🍬 Galactic', 5: '🎄 Christmas', 6: '🎨 Holi edition', 7: '🐦\u200d🔥 Marvelous', 8: '💮 Exclusive', 9: '🔖 Manga rush', 10: '🔮 Mythical', 11: '🛖 Tribe', 12: '🛷 X-Mas', 13: '🟡 Legendary', 14: '🟢 Medium', 15: '🟣 Rare', 16: '🧣 Winters', 17: '🪁 Skyrise', 18: '🪔 Diwali edition', 19: '🪢 Corrupted', 20: '🪼 Exotic', 21: '🫧 Special'}
         try:
             rarity = rarity_map[int(args[3])]
-        except KeyError:
-            await update.message.reply_text('Invalid rarity. Please use 1, 2, 3, 4, or 5.')
+        except (KeyError, ValueError):
+            await update.message.reply_text('Invalid rarity. Please use a number from 1 to 21.')
             return
 
         id = str(await get_next_sequence_number('character_id')).zfill(2)
@@ -132,11 +151,11 @@ async def update(update: Update, context: CallbackContext) -> None:
         if args[1] in ['name', 'anime']:
             new_value = args[2].replace('-', ' ').title()
         elif args[1] == 'rarity':
-            rarity_map = {1: "⚪ Common", 2: "🟣 Rare", 3: "🟡 Legendary", 4: "🟢 Medium", 5: "💮 Special edition", 6 : "🔮 premium edition", 7: "🎗️ Supreme"}
+            rarity_map = {1: '⚪ Common', 2: '🌟 Galaxies', 3: '🌤️ Summer', 4: '🍬 Galactic', 5: '🎄 Christmas', 6: '🎨 Holi edition', 7: '🐦‍🔥 Marvelous', 8: '💮 Exclusive', 9: '🔖 Manga rush', 10: '🔮 Mythical', 11: '🛖 Tribe', 12: '🛷 X-Mas', 13: '🟡 Legendary', 14: '🟢 Medium', 15: '🟣 Rare', 16: '🧣 Winters', 17: '🪁 Skyrise', 18: '🪔 Diwali edition', 19: '🪢 Corrupted', 20: '🪼 Exotic', 21: '🫧 Special'}
             try:
                 new_value = rarity_map[int(args[2])]
-            except KeyError:
-                await update.message.reply_text('Invalid rarity. Please use 1, 2, 3, 4, or 5.')
+            except (KeyError, ValueError):
+                await update.message.reply_text('Invalid rarity. Please use a number from 1 to 21.')
                 return
         else:
             new_value = args[2]

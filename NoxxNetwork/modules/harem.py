@@ -89,6 +89,15 @@ async def ensure_joined(update: Update, context: CallbackContext):
     return False
 
 
+def _rarity_symbol(rarity):
+    """Return only the emoji/symbol from a stored rarity like '🔮 Mythical'."""
+    if not rarity:
+        return "⚪"
+    text = str(rarity).strip()
+    # Rarity values are stored as '<symbol> <name>'; preserve emoji/symbol only.
+    return text.split(maxsplit=1)[0] if text else "⚪"
+
+
 async def harem(update: Update, context: CallbackContext, page=0) -> None:
     if not await ensure_joined(update, context):
         return
@@ -125,8 +134,10 @@ async def harem(update: Update, context: CallbackContext, page=0) -> None:
         harem_message += f"\n<b>✦ {escape(str(anime))}</b> <i>{len(anime_chars)}/{total_anime}</i>\n"
         for character in anime_chars:
             star = " ♡" if character['id'] in favorite_ids else ""
+            rarity_symbol = _rarity_symbol(character.get('rarity'))
             harem_message += (
-                f"<code>{escape(str(character['id']))}</code>  "
+                f"↪ [<b>{escape(rarity_symbol)}</b>]  "
+                f"<code>{escape(str(character['id']))}</code> "
                 f"{escape(str(character['name']))} ×{character_counts[character['id']]}{star}\n"
             )
 
