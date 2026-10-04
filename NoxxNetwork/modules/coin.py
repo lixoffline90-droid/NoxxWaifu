@@ -6,14 +6,21 @@ from html import escape
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackContext
 
-from NoxxNetwork import application, user_collection, db, OWNER_ID, sudo_users, SUPPORT_CHAT, LOGGER
+from NoxxNetwork import (
+    application,
+    user_collection,
+    db,
+    OWNER_ID,
+    sudo_users,
+    SUPPORT_CHAT,
+    MAIN_CHAT_ID,
+    LOGGER,
+)
 
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-MAIN_CHAT_ID = -1004450386900
-
 CURRENCY = "Waifu Edollers"
 CURRENCY_SYMBOL = "$"
 
@@ -116,7 +123,7 @@ async def wsend(update: Update, context: CallbackContext) -> None:
     try:
         amount = int(context.args[0])
     except ValueError:
-        await message.reply_text("Iɴᴠᴀʟɪᴅ ᴀᴍᴏᴜɴᴛ.")
+        await message.reply_text("Iɴᴠᴀʟɪᴅ ᴀᴍᴏᴜɴᴛ. Pʟᴇᴀsᴇ ᴇɴᴛᴇʀ ᴀ ᴠᴀʟɪᴅ ɴᴜᴍʙᴇʀ.")
         return
 
     if amount <= 0:
@@ -220,27 +227,27 @@ async def ball(update: Update, context: CallbackContext) -> None:
     # 🎯 Score determination — Bowling system
     roll = random.randint(1, 100)
     if roll <= 10:
-        # 10% chance — STRIKE
+        # 10% STRIKE
         label = "🔥 <b>STRIKE!</b> Pᴇʀғᴇᴄᴛ sʜᴏᴛ!"
         reward = 100
         emoji = "💥"
     elif roll <= 25:
-        # 15% — SPARE
+        # 15% SPARE
         label = "🎯 <b>SPARE!</b> Gʀᴇᴀᴛ sʜᴏᴛ!"
         reward = random.randint(50, 99)
         emoji = "✨"
     elif roll <= 50:
-        # 25% — GOOD
+        # 25% GOOD
         label = "⭐ <b>Gᴏᴏᴅ sʜᴏᴛ!</b>"
         reward = random.randint(30, 60)
         emoji = "🌟"
     elif roll <= 80:
-        # 30% — NORMAL
+        # 30% NORMAL
         label = "🙂 <b>Nɪᴄᴇ ᴛʀʏ!</b>"
         reward = random.randint(15, 35)
         emoji = "🎳"
     else:
-        # 20% — MISS
+        # 20% MISS
         label = "😢 <b>MISS!</b> Bᴇᴛᴛᴇʀ ʟᴜᴄᴋ ɴᴇxᴛ ᴛɪᴍᴇ!"
         reward = 10
         emoji = "💨"
@@ -248,7 +255,6 @@ async def ball(update: Update, context: CallbackContext) -> None:
     # 💰 Add coins
     await add_coins(user_id, reward)
 
-    # Update tracking
     balls_used += 1
     await coins_collection.update_one(
         {'user_id': user_id},
