@@ -60,7 +60,6 @@ async def charkill(update: Update, context: CallbackContext) -> None:
 
     chars = list(target_user.get('characters', []))
 
-    # Try multiple ID formats
     candidates = [character_id, character_id.zfill(2), character_id.lstrip('0') or '0']
     matched_char = None
     for c in chars:
@@ -120,7 +119,6 @@ async def create_code(update: Update, context: CallbackContext) -> None:
 
     character_id = str(context.args[0]).strip()
 
-    # Verify character exists
     character = await collection.find_one({'id': character_id})
     if not character:
         padded = character_id.zfill(2)
@@ -135,7 +133,7 @@ async def create_code(update: Update, context: CallbackContext) -> None:
         )
         return
 
-    max_uses = 0  # 0 = unlimited
+    max_uses = 0
     if len(context.args) >= 2:
         try:
             max_uses = int(context.args[1])
@@ -147,7 +145,6 @@ async def create_code(update: Update, context: CallbackContext) -> None:
             )
             return
 
-    # Generate unique code
     code = None
     for _ in range(10):
         temp = _generate_code(10)
@@ -184,32 +181,33 @@ async def create_code(update: Update, context: CallbackContext) -> None:
 
 
 # ───────────────────────────────────────────────────────────────
-# /redeem <code>  — Everyone
+# /redeem <code>  — Everyone  (with character image)
 # ───────────────────────────────────────────────────────────────
 async def redeem(update: Update, context: CallbackContext) -> None:
     user = update.effective_user
     user_id = user.id
+    message = update.effective_message
 
     if not context.args:
-        await update.message.reply_text("U sᴀɢᴇ: /redeem <code>")
+        await message.reply_text("U sᴀɢᴇ: /redeem <code>")
         return
 
     code = str(context.args[0]).strip().upper()
 
     code_doc = await redeem_codes_col.find_one({'code': code})
     if not code_doc:
-        await update.message.reply_text("❌ Iɴᴠᴀʟɪᴅ ᴏʀ ᴇxᴘɪʀᴇᴅ ᴄᴏᴅᴇ.")
+        await message.reply_text("❌ Iɴᴠᴀʟɪᴅ ᴏʀ ᴇxᴘɪʀᴇᴅ ᴄᴏᴅᴇ.")
         return
 
     redeemed_by = code_doc.get('redeemed_by', [])
     if user_id in redeemed_by:
-        await update.message.reply_text("⚠️ Yᴏᴜ'ᴠᴇ ᴀʟʀᴇᴀᴅʏ ʀᴇᴅᴇᴇᴍᴇᴅ ᴛʜɪs ᴄᴏᴅᴇ!")
+        await message.reply_text("⚠️ Yᴏᴜ'ᴠᴇ ᴀʟʀᴇᴀᴅʏ ʀᴇᴅᴇᴇᴍᴇᴅ ᴛʜɪs ᴄᴏᴅᴇ!")
         return
 
     max_uses = int(code_doc.get('max_uses', 0))
     if max_uses > 0 and len(redeemed_by) >= max_uses:
         await redeem_codes_col.delete_one({'code': code})
-        await update.message.reply_text("❌ Tʜɪs ᴄᴏᴅᴇ ʜᴀs ʀᴇᴀᴄʜᴇᴅ ɪᴛs ᴍᴀxɪᴍᴜᴍ ᴜsᴇs.")
+        await message.reply_text("❌ Tʜɪs ᴄᴏᴅᴇ ʜᴀs ʀᴇᴀᴄʜᴇᴅ ɪᴛs ᴍᴀxɪᴍᴜᴍ ᴜsᴇs.")
         return
 
     character = code_doc.get('character_data')
@@ -218,10 +216,10 @@ async def redeem(update: Update, context: CallbackContext) -> None:
         character = await collection.find_one({'id': character_id})
         if not character:
             await redeem_codes_col.delete_one({'code': code})
-            await update.message.reply_text("❌ Cʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ. Cᴏᴅᴇ ᴇxᴘɪʀᴇᴅ.")
+            await message.reply_text("❌ Cʜᴀʀᴀᴄᴛᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ. Cᴏᴅᴇ ᴇxᴘɪʀᴇᴅ.")
             return
 
-    # Add to user's harem
+    # ─── Add to user's harem ──────────────────────────────────────
     user_doc = await user_collection.find_one({'id': user_id})
     if user_doc:
         await user_collection.update_one(
@@ -243,13 +241,12 @@ async def redeem(update: Update, context: CallbackContext) -> None:
             'characters': [character],
         })
 
-    # Mark as redeemed
+    # ─── Mark redeemed ────────────────────────────────────────────
     await redeem_codes_col.update_one(
         {'code': code},
         {'$push': {'redeemed_by': user_id}},
     )
 
-    # Check max uses after
     new_uses = len(redeemed_by) + 1
     if max_uses > 0 and new_uses >= max_uses:
         await redeem_codes_col.delete_one({'code': code})
@@ -258,16 +255,38 @@ async def redeem(update: Update, context: CallbackContext) -> None:
         remaining = "Unlimited" if max_uses == 0 else f"{max_uses - new_uses} ʟᴇғᴛ"
         remaining_text = f"🔓 Rᴇᴍᴀɪɴɪɴɢ: {remaining}"
 
-    await update.message.reply_text(
+    # ─── Build caption ────────────────────────────────────────────
+    emoji = str(character.get('emoji') or '').strip()
+    char_name = escape(str(character.get('name', 'Unknown')))
+    if emoji:
+        char_name += f" ({escape(emoji)})"
+
+    caption = (
         f"🎉 <b>Cᴏᴅᴇ Rᴇᴅᴇᴇᴍᴇᴅ!</b>\n\n"
-        f"🎴 Cʜᴀʀᴀᴄᴛᴇʀ: <b>{escape(str(character.get('name', 'Unknown')))}</b>\n"
+        f"🎴 Cʜᴀʀᴀᴄᴛᴇʀ: <b>{char_name}</b>\n"
         f"🌸 Aɴɪᴍᴇ: {escape(str(character.get('anime', 'Unknown')))}\n"
         f"⭐ Rᴀʀɪᴛʏ: {escape(str(character.get('rarity', 'Unknown')))}\n"
         f"🆔 ID: <code>{character.get('id')}</code>\n\n"
         f"Aᴅᴅᴇᴅ ᴛᴏ ʏᴏᴜʀ /harem!\n"
-        f"{remaining_text}",
-        parse_mode='HTML',
+        f"{remaining_text}"
     )
+
+    # ─── Send with image if available ─────────────────────────────
+    img_url = character.get('img_url') or character.get('image') or character.get('img')
+
+    if img_url:
+        try:
+            await message.reply_photo(
+                photo=img_url,
+                caption=caption,
+                parse_mode='HTML',
+            )
+            return
+        except Exception as e:
+            LOGGER.warning(f"Failed to send redeem photo: {e}")
+
+    # Fallback — text only
+    await message.reply_text(caption, parse_mode='HTML')
 
 
 # ───────────────────────────────────────────────────────────────
