@@ -14,7 +14,6 @@ from NoxxNetwork import user_collection, collection, application, LOGGER
 # Indexes
 # ---------------------------------------------------------------------------
 async def ensure_indexes():
-    """Create indexes used by the inline query for fast lookups."""
     try:
         await collection.create_index([('id', ASCENDING)])
         await collection.create_index([('anime', ASCENDING)])
@@ -39,22 +38,22 @@ async def inlinequery(update: Update, context: CallbackContext) -> None:
         query = (update.inline_query.query or "").strip()
         offset = int(update.inline_query.offset) if update.inline_query.offset else 0
 
-        LOGGER.info(f"Inline query received: '{query}' offset={offset}")
-
         user = None
+        is_collection = False
 
-        # ─── Collection view ───────────────────────────────────────
+        # ─── Collection view ──────────────────────────────────────
         if query.startswith('collection.'):
+            is_collection = True
             user_id_part = query.split(' ')[0].split('.')[1]
             search_terms = ' '.join(query.split(' ')[1:])
 
             if user_id_part.isdigit():
-                user_id = int(user_id_part)
-                if user_id in user_collection_cache:
-                    user = user_collection_cache[user_id]
+                owner_id = int(user_id_part)
+                if owner_id in user_collection_cache:
+                    user = user_collection_cache[owner_id]
                 else:
-                    user = await user_collection.find_one({'id': user_id})
-                    user_collection_cache[user_id] = user
+                    user = await user_collection.find_one({'id': owner_id})
+                    user_collection_cache[owner_id] = user
 
                 if user:
                     all_characters = list({v['id']: v for v in user.get('characters', [])}.values())
@@ -69,7 +68,7 @@ async def inlinequery(update: Update, context: CallbackContext) -> None:
             else:
                 all_characters = []
 
-        # ─── Normal search ─────────────────────────────────────────
+        # ─── Global search ────────────────────────────────────────
         else:
             if query:
                 regex = re.compile(re.escape(query), re.IGNORECASE)
@@ -79,21 +78,21 @@ async def inlinequery(update: Update, context: CallbackContext) -> None:
                     ).to_list(length=200)
                 )
             else:
-                # Empty query — show all (cached)
                 if 'all_characters' in all_characters_cache:
                     all_characters = all_characters_cache['all_characters']
                 else:
                     all_characters = list(await collection.find({}).to_list(length=500))
                     all_characters_cache['all_characters'] = all_characters
 
-        LOGGER.info(f"Inline query found {len(all_characters)} characters")
-
-        # Pagination
         characters = all_characters[offset:offset + 50]
-        if len(all_characters) > offset + 50:
-            next_offset = str(offset + 50)
-        else:
-            next_offset = ""
+        next_offset = str(offset + 50) if len(all_characters) > offset + 50 else ""
+
+        # ─── Precompute owner's anime count once ──────────────────
+        owner_anime_counts = {}
+        if is_collection and user:
+            for c in user.get('characters', []):
+                anime = c.get('anime', 'Unknown')
+                owner_anime_counts[anime] = owner_anime_counts.get(anime, 0) + 1
 
         results = []
         for character in characters:
@@ -106,29 +105,33 @@ async def inlinequery(update: Update, context: CallbackContext) -> None:
             if not img_url:
                 continue
 
-            try:
-                global_count = await user_collection.count_documents({'characters.id': char_id})
-            except Exception:
-                global_count = 0
-
-            if query.startswith('collection.') and user:
-                user_catch_count = sum(
+            if is_collection and user:
+                # ─── CLEAN collection caption (screenshot style) ──
+                owner_catch_count = sum(
                     1 for c in user.get('characters', []) if str(c.get('id')) == char_id
                 )
+                owner_anime_count = owner_anime_counts.get(char_anime, 0)
+                anime_total = await collection.count_documents({'anime': char_anime})
+
                 caption = (
-                    f"<b>OwO! Check out Character!!</b>\n\n"
-                    f"<b>{escape(str(char_name))}</b>\n"
-                    f"{escape(char_id)}:{escape(str(char_name))}\n\n"
-                    f"<b>RARITY</b> ({escape(str(char_rarity))})\n\n"
-                    f"<b>You have {user_catch_count} copy(s)</b>"
+                    f"<b>OᴡO! Cʜᴇᴄᴋ ᴏᴜᴛ {user['id']}'s Wᴀɪғᴜ</b>\n\n"
+                    f"<b>{escape(str(char_anime))} ({owner_anime_count}/{anime_total})</b>\n"
+                    f"{escape(char_id)}:{escape(str(char_name))} (x{owner_catch_count})\n\n"
+                    f"<b>RARITY</b> ( {escape(str(char_rarity))} )"
                 )
             else:
+                # ─── OLD global caption ────────────────────────────
+                try:
+                    global_count = await user_collection.count_documents({'characters.id': char_id})
+                except Exception:
+                    global_count = 0
+
                 caption = (
-                    f"<b>OwO! Check out Character!!</b>\n\n"
+                    f"<b>OᴡO! Cʜᴇᴄᴋ ᴏᴜᴛ Cʜᴀʀᴀᴄᴛᴇʀ!!</b>\n\n"
                     f"<b>{escape(str(char_anime))}</b>\n"
                     f"{escape(char_id)}:{escape(str(char_name))}\n\n"
-                    f"<b>RARITY</b> ({escape(str(char_rarity))})\n\n"
-                    f"<b>Globally catches {global_count} Times...</b>"
+                    f"<b>RARITY</b> ( {escape(str(char_rarity))} )\n\n"
+                    f"<b>Gʟᴏʙᴀʟʟʏ ᴄᴀᴛᴄʜᴇs {global_count} ᴛɪᴍᴇs...</b>"
                 )
 
             results.append(
@@ -144,7 +147,7 @@ async def inlinequery(update: Update, context: CallbackContext) -> None:
         await update.inline_query.answer(
             results,
             next_offset=next_offset,
-            cache_time=5,
+            cache_time=1,
             is_personal=True,
         )
 
