@@ -94,6 +94,7 @@ async def trade_callback(update: Update, context: CallbackContext) -> None:
         await query.answer("Invalid trade.", show_alert=True)
         return
 
+    # trade:ACTION:SENDER:RECEIVER:TOKEN
     _, action, sender_id_s, receiver_id_s, token = parts
     sender_id, receiver_id = int(sender_id_s), int(receiver_id_s)
 
@@ -293,7 +294,8 @@ async def gift_callback(update: Update, context: CallbackContext) -> None:
         await query.answer("Invalid gift request.", show_alert=True)
         return
 
-    _, action, sender_id_s, receiver_id_s, token = parts
+    # 🔥 FIX: gift:SENDER:RECEIVER:TOKEN:ACTION (action LAST me hai)
+    _, sender_id_s, receiver_id_s, token, action = parts
     sender_id, receiver_id = int(sender_id_s), int(receiver_id_s)
 
     if query.from_user.id != receiver_id:
