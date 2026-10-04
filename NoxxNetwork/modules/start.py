@@ -61,7 +61,7 @@ async def start(update: Update, context: CallbackContext) -> None:
 ◎ ─━──━─❖─━──━─ ◎
 
 💌 **Qᴜɪᴄᴋ Sᴛᴀʀᴛ**
-╰➤ /grab — ᴄᴀᴛᴄʜ ᴀ ᴡᴀɪғᴜ
+╰➤ /guess — ᴄᴀᴛᴄʜ ᴀ ᴡᴀɪғᴜ
 ╰➤ /harem — ᴠɪᴇᴡ ʏᴏᴜʀ ᴄᴏʟʟᴇᴄᴛɪᴏɴ
 ╰➤ /help — ᴇxᴘʟᴏʀᴇ ᴍᴏʀᴇ
 
