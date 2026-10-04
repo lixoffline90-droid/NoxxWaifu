@@ -17,6 +17,9 @@ def _gift_key(sender_id, receiver_id, token):
     return f"gift:{sender_id}:{receiver_id}:{token}"
 
 
+# ---------------------------------------------------------------------------
+# TRADE
+# ---------------------------------------------------------------------------
 @Waifuu.on_message(filters.command("trade"))
 async def trade(client, message):
     sender_id = message.from_user.id
@@ -30,56 +33,77 @@ async def trade(client, message):
     if len(message.command) != 3:
         await message.reply_text("U sᴀɢᴇ: /trade <your_id> <their_id>")
         return
-    sender_character_id, receiver_character_id = message.command[1], message.command[2]
+
+    sender_character_id = str(message.command[1])
+    receiver_character_id = str(message.command[2])
+
     sender = await user_collection.find_one({'id': sender_id})
     receiver = await user_collection.find_one({'id': receiver_id})
+
     if not sender or not receiver:
         await message.reply_text("Bᴏᴛʜ ᴜsᴇʀs ᴍᴜsᴛ ʜᴀᴠᴇ ᴀ ᴄᴏʟʟᴇᴄᴛɪᴏɴ.")
         return
-    sender_character = next((c for c in sender.get('characters', []) if str(c.get('id')) == str(sender_character_id)), None)
-    receiver_character = next((c for c in receiver.get('characters', []) if str(c.get('id')) == str(receiver_character_id)), None)
+
+    sender_character = next(
+        (c for c in sender.get('characters', []) if str(c.get('id')) == sender_character_id),
+        None,
+    )
+    receiver_character = next(
+        (c for c in receiver.get('characters', []) if str(c.get('id')) == receiver_character_id),
+        None,
+    )
+
     if not sender_character:
         await message.reply_text("Yᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴛʜᴀᴛ ᴄʜᴀʀᴀᴄᴛᴇʀ.")
         return
     if not receiver_character:
         await message.reply_text("Tʜᴇ ᴏᴛʜᴇʀ ᴜsᴇʀ ᴅᴏᴇsɴ'ᴛ ʜᴀᴠᴇ ᴛʜᴀᴛ ᴄʜᴀʀᴀᴄᴛᴇʀ.")
         return
+
     token = uuid.uuid4().hex[:10]
     key = (sender_id, receiver_id, token)
     pending_trades[key] = {
-        'sender_character_id': str(sender_character_id),
-        'receiver_character_id': str(receiver_character_id),
+        'sender_character_id': sender_character_id,
+        'receiver_character_id': receiver_character_id,
         'expires_at': time.monotonic() + 120,
     }
+
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Cᴏɴғɪʀᴍ Tʀᴀᴅᴇ", callback_data=f"trade:confirm:{sender_id}:{receiver_id}:{token}")],
         [InlineKeyboardButton("❌ Cᴀɴᴄᴇʟ Tʀᴀᴅᴇ", callback_data=f"trade:cancel:{sender_id}:{receiver_id}:{token}")],
     ])
+
     await message.reply_text(
         f"🤝 <b>Tʀᴀᴅᴇ Rᴇǫᴜᴇsᴛ</b>\n\n"
-        f"Yᴏᴜ ᴏғғᴇʀ: <b>{escape(str(sender_character.get('name','Unknown')))}</b>\n"
-        f"Yᴏᴜ ʀᴇᴄᴇɪᴠᴇ: <b>{escape(str(receiver_character.get('name','Unknown')))}</b>\n\n"
+        f"Yᴏᴜ ᴏғғᴇʀ: <b>{escape(str(sender_character.get('name', 'Unknown')))}</b>\n"
+        f"Yᴏᴜ ʀᴇᴄᴇɪᴠᴇ: <b>{escape(str(receiver_character.get('name', 'Unknown')))}</b>\n\n"
         f"Tʜᴇ ᴛʀᴀᴅᴇ ᴇxᴘɪʀᴇs ɪɴ 2 ᴍɪɴᴜᴛᴇs.",
-        parse_mode='HTML', reply_markup=markup
+        parse_mode='HTML',
+        reply_markup=markup,
     )
 
 
-@Waifuu.on_callback_query(filters.regex(r'^trade:(confirm|cancel):'))
+@Waifuu.on_callback_query(filters.regex(r'^trade:'))
 async def trade_callback(client, callback_query):
     parts = callback_query.data.split(':')
     if len(parts) != 5:
         await callback_query.answer("Invalid trade.", show_alert=True)
         return
+
     _, action, sender_id_s, receiver_id_s, token = parts
     sender_id, receiver_id = int(sender_id_s), int(receiver_id_s)
+
     if callback_query.from_user.id != receiver_id:
         await callback_query.answer("Only the receiving user can accept this trade.", show_alert=True)
         return
+
     key = (sender_id, receiver_id, token)
     trade_data = pending_trades.get(key)
+
     if not trade_data:
         await callback_query.answer("This trade has expired or was cancelled.", show_alert=True)
         return
+
     if time.monotonic() >= trade_data['expires_at']:
         pending_trades.pop(key, None)
         await callback_query.answer("This trade has expired.", show_alert=True)
@@ -88,6 +112,7 @@ async def trade_callback(client, callback_query):
         except Exception:
             pass
         return
+
     if action == 'cancel':
         pending_trades.pop(key, None)
         await callback_query.answer("Trade cancelled.")
@@ -96,56 +121,80 @@ async def trade_callback(client, callback_query):
 
     sender = await user_collection.find_one({'id': sender_id})
     receiver = await user_collection.find_one({'id': receiver_id})
+
     if not sender or not receiver:
         pending_trades.pop(key, None)
         await callback_query.answer("User collection not found.", show_alert=True)
         return
+
     sid, rid = trade_data['sender_character_id'], trade_data['receiver_character_id']
+
     sender_chars = list(sender.get('characters', []))
     receiver_chars = list(receiver.get('characters', []))
-    s_idx = next((i for i,c in enumerate(sender_chars) if str(c.get('id')) == sid), None)
-    r_idx = next((i for i,c in enumerate(receiver_chars) if str(c.get('id')) == rid), None)
+
+    s_idx = next((i for i, c in enumerate(sender_chars) if str(c.get('id')) == sid), None)
+    r_idx = next((i for i, c in enumerate(receiver_chars) if str(c.get('id')) == rid), None)
+
     if s_idx is None or r_idx is None:
         pending_trades.pop(key, None)
         await callback_query.answer("One of the characters is no longer available.", show_alert=True)
         return
+
     sender_character = sender_chars.pop(s_idx)
     receiver_character = receiver_chars.pop(r_idx)
+
     sender_chars.append(receiver_character)
     receiver_chars.append(sender_character)
+
     await user_collection.update_one({'id': sender_id}, {'$set': {'characters': sender_chars}})
     await user_collection.update_one({'id': receiver_id}, {'$set': {'characters': receiver_chars}})
+
     pending_trades.pop(key, None)
+
     await callback_query.answer("Trade completed!")
     await callback_query.message.edit_text("🤝 Tʀᴀᴅᴇ Cᴏᴍᴘʟᴇᴛᴇᴅ Sᴜᴄᴄᴇssғᴜʟʟʏ! ✅")
 
 
+# ---------------------------------------------------------------------------
+# GIFT
+# ---------------------------------------------------------------------------
 @Waifuu.on_message(filters.command("gift"))
 async def gift(client, message):
     sender_id = message.from_user.id
+
     if not message.reply_to_message or not message.reply_to_message.from_user:
         await message.reply_text("Rᴇᴘʟʏ ᴛᴏ ᴛʜᴇ ᴜsᴇʀ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ɢɪғᴛ ᴛᴏ.")
         return
+
     receiver = message.reply_to_message.from_user
     receiver_id = receiver.id
+
     if sender_id == receiver_id:
         await message.reply_text("Yᴏᴜ ᴄᴀɴ'ᴛ ɢɪғᴛ ᴀ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴛᴏ ʏᴏᴜʀsᴇʟғ!")
         return
+
     if len(message.command) != 2:
         await message.reply_text("U sᴀɢᴇ: /gift <character_id>")
         return
+
     character_id = str(message.command[1])
+
     sender = await user_collection.find_one({'id': sender_id})
     if not sender or not sender.get('characters'):
         await message.reply_text("Yᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴀɴʏ ᴄʜᴀʀᴀᴄᴛᴇʀs.")
         return
-    character = next((c for c in sender['characters'] if str(c.get('id')) == character_id), None)
+
+    character = next(
+        (c for c in sender['characters'] if str(c.get('id')) == character_id),
+        None,
+    )
     if not character:
         await message.reply_text("Yᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴛʜɪs ᴄʜᴀʀᴀᴄᴛᴇʀ.")
         return
 
     token = uuid.uuid4().hex[:10]
     key = (sender_id, receiver_id, token)
+
     gift_data = {
         'character': character,
         'receiver_username': receiver.username,
@@ -158,25 +207,43 @@ async def gift(client, message):
     emoji = str(character.get('emoji') or '').strip()
     if emoji:
         name += f" ({escape(emoji)})"
+
     symbol = escape(rarity_symbol(character.get('rarity')))
     rarity = escape(str(character.get('rarity', 'Unknown')))
+
     caption = (
         f"<b>{name}</b>\n"
         f"Rᴀʀɪᴛʏ: {symbol} {rarity}\n"
         f"Aɴɪᴍᴇ: {escape(str(character.get('anime', 'Unknown')))}\n"
         f"ID: {escape(str(character.get('id', character_id)))}"
     )
+
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Cᴏɴғɪʀᴍ Gɪғᴛ", callback_data=_gift_key(sender_id, receiver_id, token) + ':confirm')],
-        [InlineKeyboardButton("❌ Cᴀɴᴄᴇʟ Gɪғᴛ", callback_data=_gift_key(sender_id, receiver_id, token) + ':cancel')],
+        [InlineKeyboardButton(
+            "✅ Cᴏɴғɪʀᴍ Gɪғᴛ",
+            callback_data=_gift_key(sender_id, receiver_id, token) + ':confirm',
+        )],
+        [InlineKeyboardButton(
+            "❌ Cᴀɴᴄᴇʟ Gɪғᴛ",
+            callback_data=_gift_key(sender_id, receiver_id, token) + ':cancel',
+        )],
     ])
+
     image_url = character.get('img_url') or character.get('image') or character.get('img')
+
     if image_url:
-        sent = await message.reply_photo(photo=image_url, caption=caption, parse_mode='HTML', reply_markup=markup)
+        sent = await message.reply_photo(
+            photo=image_url,
+            caption=caption,
+            parse_mode='HTML',
+            reply_markup=markup,
+        )
     else:
         sent = await message.reply_text(caption, parse_mode='HTML', reply_markup=markup)
+
     gift_data['message_id'] = sent.id
     gift_data['chat_id'] = message.chat.id
+
     asyncio.create_task(_expire_gift(key, gift_data))
 
 
@@ -185,41 +252,64 @@ async def _expire_gift(key, gift_data):
     if pending_gifts.get(key) is not gift_data:
         return
     pending_gifts.pop(key, None)
+
     text = "❌ <b>Gɪғᴛ Exᴘɪʀᴇᴅ</b>\n\nTʜᴇ 2-ᴍɪɴᴜᴛᴇ ᴛɪᴍᴇʟɪᴍɪᴛ ʜᴀs ᴘᴀssᴇᴅ."
     try:
-        await Waifuu.edit_message_caption(gift_data['chat_id'], gift_data['message_id'], text, parse_mode='html', reply_markup=None)
+        await Waifuu.edit_message_caption(
+            gift_data['chat_id'],
+            gift_data['message_id'],
+            text,
+            parse_mode='html',
+            reply_markup=None,
+        )
     except Exception:
         try:
-            await Waifuu.edit_message_text(gift_data['chat_id'], gift_data['message_id'], text, parse_mode='html', reply_markup=None)
+            await Waifuu.edit_message_text(
+                gift_data['chat_id'],
+                gift_data['message_id'],
+                text,
+                parse_mode='html',
+                reply_markup=None,
+            )
         except Exception:
             pass
 
 
-@Waifuu.on_callback_query(filters.regex(r'^gift:(?:confirm|cancel):'))
+@Waifuu.on_callback_query(filters.regex(r'^gift:'))
 async def gift_callback(client, callback_query):
     parts = callback_query.data.split(':')
     if len(parts) != 5:
         await callback_query.answer("Invalid gift request.", show_alert=True)
         return
+
     _, action, sender_id_s, receiver_id_s, token = parts
     sender_id, receiver_id = int(sender_id_s), int(receiver_id_s)
+
     if callback_query.from_user.id != receiver_id:
         await callback_query.answer("Only the receiver can accept this gift.", show_alert=True)
         return
+
     key = (sender_id, receiver_id, token)
     gift_data = pending_gifts.get(key)
+
     if not gift_data:
         await callback_query.answer("This gift has expired or was cancelled.", show_alert=True)
         return
+
     if time.monotonic() >= gift_data['expires_at']:
         pending_gifts.pop(key, None)
         await callback_query.answer("This gift has expired.", show_alert=True)
         return
+
     if action == 'cancel':
         pending_gifts.pop(key, None)
         await callback_query.answer("Gift cancelled.")
         try:
-            await callback_query.message.edit_caption("❌ <b>Gɪғᴛ Cᴀɴᴄᴇʟʟᴇᴅ</b>\n\nTʜᴇ ᴄʜᴀʀᴀᴄᴛᴇʀ ʜᴀs ɴᴏᴛ ʙᴇᴇɴ sᴇɴᴛ.", parse_mode='html', reply_markup=None)
+            await callback_query.message.edit_caption(
+                "❌ <b>Gɪғᴛ Cᴀɴᴄᴇʟʟᴇᴅ</b>\n\nTʜᴇ ᴄʜᴀʀᴀᴄᴛᴇʀ ʜᴀs ɴᴏᴛ ʙᴇᴇɴ sᴇɴᴛ.",
+                parse_mode='html',
+                reply_markup=None,
+            )
         except Exception:
             await callback_query.message.edit_text("❌ Gɪғᴛ Cᴀɴᴄᴇʟʟᴇᴅ", reply_markup=None)
         return
@@ -229,24 +319,45 @@ async def gift_callback(client, callback_query):
         pending_gifts.pop(key, None)
         await callback_query.answer("Sender collection not found.", show_alert=True)
         return
+
     character = gift_data['character']
     sender_chars = list(sender.get('characters', []))
-    idx = next((i for i,c in enumerate(sender_chars) if str(c.get('id')) == str(character.get('id'))), None)
+    idx = next(
+        (i for i, c in enumerate(sender_chars) if str(c.get('id')) == str(character.get('id'))),
+        None,
+    )
+
     if idx is None:
         pending_gifts.pop(key, None)
         await callback_query.answer("The sender no longer has this character.", show_alert=True)
         return
+
     sender_chars.pop(idx)
     await user_collection.update_one({'id': sender_id}, {'$set': {'characters': sender_chars}})
+
     receiver = await user_collection.find_one({'id': receiver_id})
     if receiver:
-        await user_collection.update_one({'id': receiver_id}, {'$push': {'characters': character}})
+        await user_collection.update_one(
+            {'id': receiver_id}, {'$push': {'characters': character}}
+        )
     else:
-        await user_collection.insert_one({'id': receiver_id, 'username': gift_data['receiver_username'], 'first_name': gift_data['receiver_first_name'], 'characters': [character]})
+        await user_collection.insert_one({
+            'id': receiver_id,
+            'username': gift_data['receiver_username'],
+            'first_name': gift_data['receiver_first_name'],
+            'characters': [character],
+        })
+
     pending_gifts.pop(key, None)
+
     await callback_query.answer("Gift accepted successfully!")
-    receiver_mention = f'<a href="tg://user?id={receiver_id}">{escape(gift_data["receiver_first_name"])}</a>'
+
+    receiver_mention = (
+        f'<a href="tg://user?id={receiver_id}">'
+        f'{escape(gift_data["receiver_first_name"])}</a>'
+    )
     success = f"🎁 <b>Gɪғᴛ sᴜᴄᴄᴇssғᴜʟʟʏ sᴇɴᴛ ᴛᴏ</b>\n{receiver_mention}"
+
     try:
         await callback_query.message.edit_caption(success, parse_mode='html', reply_markup=None)
     except Exception:
