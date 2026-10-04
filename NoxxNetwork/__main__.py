@@ -84,9 +84,11 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
                 message_counts[chat_id] = 0
                 return
 
+        # ─── Frequency from DB (no clamp — sudo can set 1+) ─────────
         chat_frequency = await user_totals_collection.find_one({'chat_id': chat_id})
         message_frequency = int(chat_frequency.get('message_frequency', 100)) if chat_frequency else 100
-        message_frequency = max(100, message_frequency)
+        if message_frequency < 1:
+            message_frequency = 100
 
         # Anti-spam behavior
         if chat_id in last_user and last_user[chat_id]['user_id'] == user_id:
