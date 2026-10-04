@@ -226,7 +226,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
     await context.bot.send_photo(
         chat_id=chat_id,
         photo=character['img_url'],
-        caption=f"{symbol} Gʀᴇᴀᴛ! ᴀ ɴᴇᴡ ᴡᴀɪғᴜ ʜᴀs ᴊᴜsᴛ ᴀᴘᴘᴇᴀʀᴇᴅ\n\nᴜsᴇ /ɢᴜᴇss ɴᴀᴍᴇ",
+        caption=f"{symbol} Gʀᴇᴀᴛ! ᴀ ɴᴇᴡ ᴡᴀɪғᴜ ʜᴀs ᴊᴜsᴛ ᴀᴘᴘᴇᴀʀᴇᴅ\n\nᴜsᴇ /Guess ɴᴀᴍᴇ",
         parse_mode='HTML',
     )
 
@@ -335,7 +335,7 @@ async def guess(update: Update, context: CallbackContext) -> None:
             f'Cʜᴀʀᴀᴄᴛᴇʀ Nᴀᴍᴇ: {escape(str(character.get("name", "Unknown")))}\n'
             f'Aɴɪᴍᴇ: {escape(str(character.get("anime", "Unknown")))}\n'
             f'Rᴀʀɪᴛʏ: {rarity}\n\n'
-            'Tʜɪs ᴄʜᴀʀᴀᴄᴛᴇʀ ʜᴀs ʙᴇᴇɴ ᴀᴅᴅᴇᴅ ᴛᴏ ʏᴏᴜʀ /ʜᴀʀᴇᴍ.',
+            'Tʜɪs ᴄʜᴀʀᴀᴄᴛᴇʀ ʜᴀs ʙᴇᴇɴ ᴀᴅᴅᴇᴅ ᴛᴏ ʏᴏᴜʀ /Harem.',
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
