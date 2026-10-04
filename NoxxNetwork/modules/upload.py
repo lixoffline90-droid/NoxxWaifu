@@ -8,6 +8,7 @@ from NoxxNetwork import (
     application,
     sudo_users,
     collection,
+    user_collection,
     db,
     CHARA_CHANNEL_ID,
     SUPPORT_CHAT,
@@ -115,12 +116,16 @@ async def upload(update: Update, context: CallbackContext) -> None:
             )
             character['message_id'] = message.message_id
             await collection.insert_one(character)
-            await update.message.reply_text('CHARACTER ADDED....')
+            await update.message.reply_text(
+                f'✅ CHARACTER ADDED with ID <code>{id}</code>',
+                parse_mode='HTML',
+            )
         except Exception as channel_error:
             LOGGER.warning(f"Channel send failed, saving to DB only: {channel_error}")
             await collection.insert_one(character)
             await update.message.reply_text(
-                "Character Added but no Database Channel Found, Consider adding one."
+                f"✅ Character Added (ID <code>{id}</code>) but no Database Channel Found.",
+                parse_mode='HTML',
             )
 
     except Exception as e:
@@ -130,6 +135,9 @@ async def upload(update: Update, context: CallbackContext) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# DELETE — Bulletproof: DB delete is ALWAYS priority
+# ---------------------------------------------------------------------------
 async def delete(update: Update, context: CallbackContext) -> None:
     if str(update.effective_user.id) not in sudo_users:
         await update.message.reply_text('Ask my Owner to use this Command...')
@@ -138,31 +146,85 @@ async def delete(update: Update, context: CallbackContext) -> None:
     try:
         args = context.args
         if len(args) != 1:
-            await update.message.reply_text('Incorrect format... Please use: /delete ID')
+            await update.message.reply_text('Incorrect format... Please use: /delete <character_id>')
             return
 
-        character = await collection.find_one_and_delete({'id': args[0]})
+        raw_id = str(args[0]).strip()
+
+        # ─── Try multiple ID variants ───────────────────────────────────
+        character = None
+        candidates = [raw_id, raw_id.zfill(2), raw_id.lstrip('0') or '0']
+        for candidate in candidates:
+            character = await collection.find_one({'id': candidate})
+            if character:
+                raw_id = candidate
+                break
 
         if not character:
-            await update.message.reply_text('Character not found in database.')
+            await update.message.reply_text(
+                f"❌ Character with ID <code>{raw_id}</code> not found in database.",
+                parse_mode='HTML',
+            )
             return
 
-        # Only try to delete channel message if message_id exists
-        if character.get('message_id'):
+        character_id = character['id']
+        character_name = character.get('name', 'Unknown')
+        old_message_id = character.get('message_id')
+
+        # ─── STEP 1: Delete from main characters collection (ALWAYS) ────
+        delete_result = await collection.delete_one({'id': character_id})
+        if delete_result.deleted_count == 0:
+            await update.message.reply_text("❌ Failed to delete from database.")
+            return
+
+        # ─── STEP 2: Pull from ALL user collections (best effort) ───────
+        removed_from_users = 0
+        try:
+            result = await user_collection.update_many(
+                {},
+                {'$pull': {'characters': {'id': character_id}}},
+            )
+            removed_from_users = result.modified_count
+        except Exception as e:
+            LOGGER.warning(f"Failed to pull from user collections: {e}")
+
+        # ─── STEP 3: Try channel delete (best effort, channel may have changed)
+        channel_status = "ℹ️ No channel message linked"
+        if old_message_id:
             try:
                 await context.bot.delete_message(
                     chat_id=CHARA_CHANNEL_ID,
-                    message_id=character['message_id'],
+                    message_id=old_message_id,
                 )
+                channel_status = "📢 Channel message deleted"
             except Exception as e:
-                LOGGER.warning(f"Channel message delete failed: {e}")
+                err = str(e).lower()
+                if "message to delete not found" in err or "not found" in err:
+                    channel_status = "ℹ️ Channel message not found (channel changed or already deleted)"
+                elif "not enough rights" in err or "chat not found" in err or "bot was kicked" in err:
+                    channel_status = "⚠️ Channel: bot not admin / not in channel"
+                else:
+                    channel_status = f"⚠️ Channel delete failed"
 
-        await update.message.reply_text('DONE')
+        # ─── STEP 4: Report ─────────────────────────────────────────────
+        lines = [
+            "✅ <b>Character Deleted</b>",
+            "",
+            f"🆔 ID: <code>{character_id}</code>",
+            f"📛 Name: <b>{character_name}</b>",
+            f"👥 Removed from {removed_from_users} user collection(s)",
+            channel_status,
+        ]
+        await update.message.reply_text("\n".join(lines), parse_mode='HTML')
 
     except Exception as e:
-        await update.message.reply_text(f'{str(e)}')
+        LOGGER.exception("Delete command failed")
+        await update.message.reply_text(f'❌ Error: {str(e)}')
 
 
+# ---------------------------------------------------------------------------
+# UPDATE character
+# ---------------------------------------------------------------------------
 async def update_character(update: Update, context: CallbackContext) -> None:
     if str(update.effective_user.id) not in sudo_users:
         await update.message.reply_text('You do not have permission to use this command.')
@@ -174,7 +236,15 @@ async def update_character(update: Update, context: CallbackContext) -> None:
             await update.message.reply_text('Incorrect format. Please use: /update id field new_value')
             return
 
-        character = await collection.find_one({'id': args[0]})
+        character_id = str(args[0]).strip()
+
+        character = await collection.find_one({'id': character_id})
+        if not character:
+            padded = character_id.zfill(2)
+            character = await collection.find_one({'id': padded})
+            if character:
+                character_id = padded
+
         if not character:
             await update.message.reply_text('Character not found.')
             return
@@ -198,7 +268,7 @@ async def update_character(update: Update, context: CallbackContext) -> None:
             new_value = args[2]
 
         await collection.find_one_and_update(
-            {'id': args[0]}, {'$set': {args[1]: new_value}}
+            {'id': character_id}, {'$set': {args[1]: new_value}}
         )
 
         updated_character = dict(character)
@@ -213,10 +283,10 @@ async def update_character(update: Update, context: CallbackContext) -> None:
             f'{update.effective_user.first_name}</a>'
         )
 
-        # Handle channel update only if message_id exists
         old_message_id = character.get('message_id')
 
         if args[1] == 'img_url':
+            # Try delete old message (best effort — channel may have changed)
             if old_message_id:
                 try:
                     await context.bot.delete_message(
@@ -225,6 +295,7 @@ async def update_character(update: Update, context: CallbackContext) -> None:
                 except Exception as e:
                     LOGGER.warning(f"Old channel message delete failed: {e}")
 
+            # Send new photo to current channel
             try:
                 message = await context.bot.send_photo(
                     chat_id=CHARA_CHANNEL_ID,
@@ -233,11 +304,12 @@ async def update_character(update: Update, context: CallbackContext) -> None:
                     parse_mode='HTML',
                 )
                 await collection.find_one_and_update(
-                    {'id': args[0]}, {'$set': {'message_id': message.message_id}}
+                    {'id': character_id}, {'$set': {'message_id': message.message_id}}
                 )
             except Exception as e:
                 LOGGER.warning(f"Channel update failed: {e}")
         else:
+            # Try to edit caption (best effort)
             if old_message_id:
                 try:
                     await context.bot.edit_message_caption(
@@ -247,17 +319,86 @@ async def update_character(update: Update, context: CallbackContext) -> None:
                         parse_mode='HTML',
                     )
                 except Exception as e:
-                    LOGGER.warning(f"Channel caption edit failed: {e}")
+                    LOGGER.warning(f"Channel caption edit failed (channel changed?): {e}")
 
         await update.message.reply_text(
-            'Updated Done in Database.... But sometimes it Takes Time to edit Caption in Your Channel..So wait..'
+            f'✅ Updated <code>{args[1]}</code> for character <code>{character_id}</code>.',
+            parse_mode='HTML',
         )
 
     except Exception as e:
-        await update.message.reply_text(
-            f'I guess did not added bot in channel.. or character uploaded Long time ago.. '
-            f'Or character not exits.. orr Wrong id. Error: {e}'
-        )
+        LOGGER.exception("Update command failed")
+        await update.message.reply_text(f'Error: {e}')
+
+
+# ---------------------------------------------------------------------------
+# RESYNC CHANNEL — updates message_ids to current channel
+# ---------------------------------------------------------------------------
+async def resync_channel(update: Update, context: CallbackContext) -> None:
+    """Re-upload all characters to the NEW channel and update message_ids.
+    Use only when CHARA_CHANNEL_ID was changed.
+    """
+    if str(update.effective_user.id) not in sudo_users:
+        await update.message.reply_text('Ask my Owner to use this Command...')
+        return
+
+    status = await update.message.reply_text(
+        "🔄 Starting channel resync... This may take a while."
+    )
+
+    total = 0
+    updated = 0
+    failed = 0
+
+    async for char in collection.find({}):
+        total += 1
+        try:
+            caption = (
+                f'<b>Character Name:</b> {char.get("name", "Unknown")}\n'
+                f'<b>Anime Name:</b> {char.get("anime", "Unknown")}\n'
+                f'<b>Rarity:</b> {char.get("rarity", "Unknown")}\n'
+                f'<b>ID:</b> {char.get("id")}\n'
+                f'Resynced by <a href="tg://user?id={update.effective_user.id}">'
+                f'{update.effective_user.first_name}</a>'
+            )
+            message = await context.bot.send_photo(
+                chat_id=CHARA_CHANNEL_ID,
+                photo=char['img_url'],
+                caption=caption,
+                parse_mode='HTML',
+            )
+            await collection.update_one(
+                {'id': char['id']},
+                {'$set': {'message_id': message.message_id}},
+            )
+            updated += 1
+        except Exception as e:
+            LOGGER.warning(f"Resync failed for {char.get('id')}: {e}")
+            failed += 1
+
+        # Avoid Telegram rate limits
+        import asyncio
+        await asyncio.sleep(1.5)
+
+        # Progress every 10
+        if (updated + failed) % 10 == 0:
+            try:
+                await status.edit_text(
+                    f"🔄 Resyncing...\n"
+                    f"✅ Updated: {updated}\n"
+                    f"❌ Failed: {failed}\n"
+                    f"📊 Total: {total}"
+                )
+            except Exception:
+                pass
+
+    await status.edit_text(
+        f"✅ <b>Resync Complete</b>\n\n"
+        f"📊 Total: {total}\n"
+        f"✅ Updated: {updated}\n"
+        f"❌ Failed: {failed}",
+        parse_mode='HTML',
+    )
 
 
 async def set_rarity_probability(update: Update, context: CallbackContext) -> None:
@@ -297,6 +438,9 @@ application.add_handler(DELETE_HANDLER)
 
 UPDATE_HANDLER = CommandHandler('update', update_character, block=False)
 application.add_handler(UPDATE_HANDLER)
+
+RESYNC_HANDLER = CommandHandler('resync', resync_channel, block=False)
+application.add_handler(RESYNC_HANDLER)
 
 SET_RARITY_HANDLER = CommandHandler(
     ['setrarity', 'setrarityprob'], set_rarity_probability, block=False
