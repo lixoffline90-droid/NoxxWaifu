@@ -1,11 +1,18 @@
+# Core
 motor
 aiohttp
 requests
 python-telegram-bot==20.6
-pymongo 
+pymongo
+pyrogram
+tgcrypto
+python-dotenv
+cachetools
+
+# Scheduler / rate-limit
 pyrate-limiter==3.1.0
 apscheduler==3.6.3
-pyrogram
-tgcrypto 
-python-dotenv
-cachetools 
+
+# Extra safety
+pytz
+TgCrypto
