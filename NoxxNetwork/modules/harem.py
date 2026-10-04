@@ -116,7 +116,7 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
     if not user or not user.get('characters'):
         text = (
             "🌸 <b>Yᴏᴜʀ Hᴀʀᴇᴍ ɪs Eᴍᴘᴛʏ</b>\n\n"
-            "ᴜsᴇ /ɢʀᴀʙ ɪɴ ᴀ ɢʀᴏᴜᴘ ᴛᴏ sᴛᴀʀᴛ ᴄᴏʟʟᴇᴄᴛɪɴɢ ᴡᴀɪғᴜs."
+            "ᴜsᴇ /guess ɪɴ ᴀ ɢʀᴏᴜᴘ ᴛᴏ sᴛᴀʀᴛ ᴄᴏʟʟᴇᴄᴛɪɴɢ ᴡᴀɪғᴜs."
         )
         if update.message:
             await update.message.reply_text(text, parse_mode='HTML')
