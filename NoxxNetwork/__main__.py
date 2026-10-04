@@ -3,14 +3,26 @@ import time
 import random
 import re
 import asyncio
-from html import escape 
+from html import escape
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 from telegram import Update
-from telegram.ext import CommandHandler, CallbackContext, MessageHandler, CallbackQueryHandler, filters
+from telegram.ext import (
+    CommandHandler,
+    CallbackContext,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters,
+)
 
-from NoxxNetwork import collection, top_global_groups_collection, group_user_totals_collection, user_collection, user_totals_collection, Waifuu
+from NoxxNetwork import (
+    collection,
+    top_global_groups_collection,
+    group_user_totals_collection,
+    user_collection,
+    user_totals_collection,
+    Waifuu,
+)
 from NoxxNetwork import application, SUPPORT_CHAT, UPDATE_CHAT, db, LOGGER
 from NoxxNetwork.modules import ALL_MODULES
 from NoxxNetwork.rarity import RARITIES, rarity_symbol, rarity_name, get_probability_table
@@ -33,6 +45,8 @@ for module_name in ALL_MODULES:
 
 last_user = {}
 warned_users = {}
+
+
 def escape_markdown(text):
     escape_chars = r'\*_`\\~>#+-=|{}.!'
     return re.sub(r'([%s])' % re.escape(escape_chars), r'\\\1', text)
@@ -172,23 +186,21 @@ async def guess(update: Update, context: CallbackContext) -> None:
         return
 
     if chat_id in first_correct_guesses:
-        await update.message.reply_text(f'❌️ Already Guessed By Someone.. Try Next Time Bruhh ')
+        await update.message.reply_text('❌️ Already Guessed By Someone.. Try Next Time Bruhh ')
         return
 
     guess = ' '.join(context.args).lower() if context.args else ''
-    
+
     if "()" in guess or "&" in guess.lower():
         await update.message.reply_text("Nahh You Can't use This Types of words in your guess..❌️")
         return
-
 
     name_parts = last_characters[chat_id]['name'].lower().split()
 
     if sorted(name_parts) == sorted(guess.split()) or any(part == guess for part in name_parts):
 
-    
         first_correct_guesses[chat_id] = user_id
-        
+
         user = await user_collection.find_one({'id': user_id})
         if user:
             update_fields = {}
@@ -198,9 +210,9 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 update_fields['first_name'] = update.effective_user.first_name
             if update_fields:
                 await user_collection.update_one({'id': user_id}, {'$set': update_fields})
-            
+
             await user_collection.update_one({'id': user_id}, {'$push': {'characters': last_characters[chat_id]}})
-      
+
         elif hasattr(update.effective_user, 'username'):
             await user_collection.insert_one({
                 'id': user_id,
@@ -209,7 +221,6 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 'characters': [last_characters[chat_id]],
             })
 
-        
         group_user_total = await group_user_totals_collection.find_one({'user_id': user_id, 'group_id': chat_id})
         if group_user_total:
             update_fields = {}
@@ -219,9 +230,9 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 update_fields['first_name'] = update.effective_user.first_name
             if update_fields:
                 await group_user_totals_collection.update_one({'user_id': user_id, 'group_id': chat_id}, {'$set': update_fields})
-            
+
             await group_user_totals_collection.update_one({'user_id': user_id, 'group_id': chat_id}, {'$inc': {'count': 1}})
-      
+
         else:
             await group_user_totals_collection.insert_one({
                 'user_id': user_id,
@@ -231,8 +242,6 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 'count': 1,
             })
 
-
-    
         group_info = await top_global_groups_collection.find_one({'group_id': chat_id})
         if group_info:
             update_fields = {}
@@ -240,9 +249,9 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 update_fields['group_name'] = update.effective_chat.title
             if update_fields:
                 await top_global_groups_collection.update_one({'group_id': chat_id}, {'$set': update_fields})
-            
+
             await top_global_groups_collection.update_one({'group_id': chat_id}, {'$inc': {'count': 1}})
-      
+
         else:
             await top_global_groups_collection.insert_one({
                 'group_id': chat_id,
@@ -250,8 +259,6 @@ async def guess(update: Update, context: CallbackContext) -> None:
                 'count': 1,
             })
 
-
-        
         keyboard = [[InlineKeyboardButton("♡ Sᴇᴇ Hᴀʀᴇᴍ", switch_inline_query_current_chat=f"collection.{user_id}")]]
         character = last_characters[chat_id]
         rarity = escape(str(character.get("rarity", "")))
@@ -270,40 +277,32 @@ async def guess(update: Update, context: CallbackContext) -> None:
 
     else:
         await update.message.reply_text('Incorrect Name.. ❌️')
-   
+
 
 async def fav(update: Update, context: CallbackContext) -> None:
     user_id = update.effective_user.id
 
-    
     if not context.args:
         await update.message.reply_text('Please provide Character id...')
         return
 
     character_id = context.args[0]
 
-    
     user = await user_collection.find_one({'id': user_id})
     if not user:
         await update.message.reply_text('You have not Guessed any characters yet....')
         return
-
 
     character = next((c for c in user['characters'] if c['id'] == character_id), None)
     if not character:
         await update.message.reply_text('This Character is Not In your collection')
         return
 
-    
     user['favorites'] = [character_id]
 
-    
     await user_collection.update_one({'id': user_id}, {'$set': {'favorites': user['favorites']}})
 
     await update.message.reply_text(f'Character {character["name"]} has been added to your favorite...')
-    
-
-
 
 
 async def character_info_callback(update: Update, context: CallbackContext) -> None:
@@ -357,19 +356,50 @@ async def character_info_command(update: Update, context: CallbackContext) -> No
     await update.message.reply_photo(photo=character.get('img_url'), caption=caption, parse_mode='HTML')
 
 
-def main() -> None:
-    """Run bot."""
-
+def register_handlers() -> None:
+    """Register all PTB handlers. Must be called before the app starts."""
     application.add_handler(CommandHandler(["guess", "protecc", "collect", "grab", "hunt"], guess, block=False))
     application.add_handler(CommandHandler("fav", fav, block=False))
     application.add_handler(CommandHandler(["w", "info"], character_info_command, block=False))
-    application.add_handler(CallbackQueryHandler(character_info_callback, pattern=r"^charinfo:" , block=False))
+    application.add_handler(CallbackQueryHandler(character_info_callback, pattern=r"^charinfo:", block=False))
     application.add_handler(MessageHandler(filters.ALL, message_counter, block=False), group=1)
 
-    application.run_polling(drop_pending_updates=True)
-    
-if __name__ == "__main__":
-    Waifuu.start()
-    LOGGER.info("Bot started")
-    main()
 
+async def _ensure_indexes() -> None:
+    """Best-effort index creation for the inline query to stay fast."""
+    try:
+        from NoxxNetwork.modules.inlinequery import ensure_indexes
+        await ensure_indexes()
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("Index creation skipped: %s", exc)
+
+
+async def runner() -> None:
+    """Start Pyrogram and PTB on the SAME event loop and keep them alive."""
+    register_handlers()
+
+    await _ensure_indexes()
+
+    await Waifuu.start()
+    LOGGER.info("Pyrogram client started")
+
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling(drop_pending_updates=True)
+    LOGGER.info("Bot started")
+
+    # Block forever — both clients now share this loop.
+    await asyncio.Event().wait()
+
+
+def main() -> None:
+    try:
+        asyncio.run(runner())
+    except (KeyboardInterrupt, SystemExit):
+        LOGGER.info("Shutdown requested")
+    finally:
+        LOGGER.info("Bot stopped")
+
+
+if __name__ == "__main__":
+    main()
