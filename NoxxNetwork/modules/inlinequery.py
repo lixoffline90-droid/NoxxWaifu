@@ -27,7 +27,7 @@ async def ensure_indexes():
         LOGGER.warning(f"Index creation failed: {e}")
 
 
-all_characters_cache = TTLCache(maxsize=10000, ttl=36000)
+all_characters_cache = TTLCache(maxsize=10000, ttl=60)
 user_collection_cache = TTLCache(maxsize=10000, ttl=60)
 
 
