@@ -11,17 +11,14 @@ from NoxxNetwork import user_collection, collection, application, db
 
 
 # ---------------------------------------------------------------------------
-# Indexes (motor is async — must be awaited).
-# Called once at startup from __main__.runner() via _ensure_indexes().
+# Indexes (motor is async — must be awaited)
 # ---------------------------------------------------------------------------
 async def ensure_indexes():
     """Create indexes used by the inline query for fast lookups."""
-    # characters collection
     await collection.create_index([('id', ASCENDING)])
     await collection.create_index([('anime', ASCENDING)])
     await collection.create_index([('img_url', ASCENDING)])
 
-    # user collection (embedded characters array)
     await user_collection.create_index([('characters.id', ASCENDING)])
     await user_collection.create_index([('characters.name', ASCENDING)])
     await user_collection.create_index([('characters.img_url', ASCENDING)])
@@ -31,13 +28,17 @@ all_characters_cache = TTLCache(maxsize=10000, ttl=36000)
 user_collection_cache = TTLCache(maxsize=10000, ttl=60)
 
 
+# ---------------------------------------------------------------------------
+# Inline query
+# ---------------------------------------------------------------------------
 async def inlinequery(update: Update, context: CallbackContext) -> None:
-    query = update.inline_query.query
+    query = update.inline_query.query.strip()
     offset = int(update.inline_query.offset) if update.inline_query.offset else 0
 
-    user = None  # will only be set in the collection branch
+    user = None
 
     if query.startswith('collection.'):
+        # user's own collection view
         user_id, *search_terms = query.split(' ')[0].split('.')[1], ' '.join(query.split(' ')[1:])
         if user_id.isdigit():
             if user_id in user_collection_cache:
@@ -52,15 +53,16 @@ async def inlinequery(update: Update, context: CallbackContext) -> None:
                     regex = re.compile(' '.join(search_terms), re.IGNORECASE)
                     all_characters = [
                         c for c in all_characters
-                        if regex.search(c['name']) or regex.search(c['anime'])
+                        if regex.search(c.get('name', '')) or regex.search(c.get('anime', ''))
                     ]
             else:
                 all_characters = []
         else:
             all_characters = []
     else:
+        # global search
         if query:
-            regex = re.compile(query, re.IGNORECASE)
+            regex = re.compile(re.escape(query), re.IGNORECASE)
             all_characters = list(
                 await collection.find(
                     {"$or": [{"name": regex}, {"anime": regex}]}
@@ -74,43 +76,49 @@ async def inlinequery(update: Update, context: CallbackContext) -> None:
                 all_characters_cache['all_characters'] = all_characters
 
     characters = all_characters[offset:offset + 50]
-    if len(characters) > 50:
-        characters = characters[:50]
-        next_offset = str(offset + 50)
-    else:
-        next_offset = str(offset + len(characters))
+    next_offset = str(offset + 50) if len(characters) == 50 else ""
 
     results = []
     for character in characters:
-        global_count = await user_collection.count_documents({'characters.id': character['id']})
-        anime_characters = await collection.count_documents({'anime': character['anime']})
+        char_id = str(character.get('id', ''))
+        char_name = character.get('name', 'Unknown')
+        char_anime = character.get('anime', 'Unknown')
+        char_rarity = character.get('rarity', '⚪ Common')
+        img_url = character.get('img_url', '')
+
+        # Global catch count
+        try:
+            global_count = await user_collection.count_documents({'characters.id': char_id})
+        except Exception:
+            global_count = 0
 
         if query.startswith('collection.') and user:
-            user_character_count = sum(c['id'] == character['id'] for c in user['characters'])
-            user_anime_characters = sum(c['anime'] == character['anime'] for c in user['characters'])
+            # User's collection view
+            user_catch_count = sum(
+                1 for c in user.get('characters', []) if str(c.get('id')) == char_id
+            )
             caption = (
-                f"<b> Look At <a href='tg://user?id={user['id']}'>"
-                f"{escape(user.get('first_name', str(user['id'])))}</a>'s Character</b>\n\n"
-                f"🌸: <b>{character['name']} (x{user_character_count})</b>\n"
-                f"🏖️: <b>{character['anime']} ({user_anime_characters}/{anime_characters})</b>\n"
-                f"<b>{character['rarity']}</b>\n\n"
-                f"<b>🆔️:</b> {character['id']}"
+                f"<b>OwO! Check out Character!!</b>\n\n"
+                f"<b>{escape(str(char_name))}</b>\n"
+                f"{escape(char_id)}:{escape(str(char_name))}\n\n"
+                f"<b>RARITY</b> ({escape(str(char_rarity))})\n\n"
+                f"<b>You have {user_catch_count} copy(s)</b>"
             )
         else:
+            # Global view — screenshot style
             caption = (
-                f"<b>Look At This Character !!</b>\n\n"
-                f"🌸:<b> {character['name']}</b>\n"
-                f"🏖️: <b>{character['anime']}</b>\n"
-                f"<b>{character['rarity']}</b>\n"
-                f"🆔️: <b>{character['id']}</b>\n\n"
-                f"<b>Globally Guessed {global_count} Times...</b>"
+                f"<b>OwO! Check out Character!!</b>\n\n"
+                f"<b>{escape(str(char_anime))}</b>\n"
+                f"{escape(char_id)}:{escape(str(char_name))}\n\n"
+                f"<b>RARITY</b> ({escape(str(char_rarity))})\n\n"
+                f"<b>Globally catches {global_count} Times...</b>"
             )
 
         results.append(
             InlineQueryResultPhoto(
-                thumbnail_url=character['img_url'],
-                id=f"{character['id']}_{time.time()}",
-                photo_url=character['img_url'],
+                thumbnail_url=img_url,
+                id=f"{char_id}_{offset}_{int(time.time())}",
+                photo_url=img_url,
                 caption=caption,
                 parse_mode='HTML',
             )
