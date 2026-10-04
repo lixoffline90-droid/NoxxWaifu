@@ -1,4 +1,4 @@
-#credit @TMZEROO
+# credit @TMZEROO
 
 import io
 import os
@@ -8,12 +8,13 @@ from contextlib import redirect_stdout
 
 from NoxxNetwork import application, LOGGER
 from telegram import Update
-from telegram.constants import ChatID, ParseMode
+from telegram.constants import ParseMode
 from telegram.ext import ContextTypes, CommandHandler
-from telegram.ext import CallbackContext 
+
 
 namespaces = {}
 DEV_LIST = [6404226395]
+
 
 def namespace_of(chat, update, bot):
     if chat not in namespaces:
@@ -40,9 +41,10 @@ async def send(msg, bot, update):
         with io.BytesIO(str.encode(msg)) as out_file:
             out_file.name = "output.txt"
             await bot.send_document(
-                chat_id=update.effective_chat.id, 
-                document=out_file, 
-                message_thread_id=update.effective_message.message_thread_id if update.effective_chat.is_forum else None
+                chat_id=update.effective_chat.id,
+                document=out_file,
+                message_thread_id=update.effective_message.message_thread_id
+                if update.effective_chat.is_forum else None,
             )
     else:
         LOGGER.info(f"OUT: '{msg}'")
@@ -50,7 +52,8 @@ async def send(msg, bot, update):
             chat_id=update.effective_chat.id,
             text=f"`{msg}`",
             parse_mode=ParseMode.MARKDOWN,
-            message_thread_id=update.effective_message.message_thread_id if update.effective_chat.is_forum else None
+            message_thread_id=update.effective_message.message_thread_id
+            if update.effective_chat.is_forum else None,
         )
 
 
@@ -83,9 +86,7 @@ async def do(func, bot, update):
     env = namespace_of(update.message.chat_id, update, bot)
 
     os.chdir(os.getcwd())
-    with open(
-        "temp.txt", "w",
-    ) as temp:
+    with open("temp.txt", "w") as temp:
         temp.write(body)
 
     stdout = io.StringIO()
@@ -102,7 +103,7 @@ async def do(func, bot, update):
     try:
         with redirect_stdout(stdout):
             func_return = await func()
-    except Exception as e:
+    except Exception:
         value = stdout.getvalue()
         return f"{value}{traceback.format_exc()}"
     else:
@@ -114,7 +115,7 @@ async def do(func, bot, update):
             else:
                 try:
                     result = f"{repr(eval(body, env))}"
-                except:
+                except Exception:
                     pass
         else:
             result = f"{value}{func_return}"
