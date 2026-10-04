@@ -28,6 +28,7 @@ from NoxxNetwork import (
     LOGGER,
 )
 from NoxxNetwork.modules import ALL_MODULES
+from NoxxNetwork.modules.moderation import is_user_banned, is_group_banned
 from NoxxNetwork.rarity import RARITIES, rarity_symbol, rarity_name, get_probability_table
 
 
@@ -71,6 +72,13 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         locks[chat_id] = asyncio.Lock()
 
     async with locks[chat_id]:
+        # ─── Ban checks ────────────────────────────────────────────────
+        if await is_group_banned(chat.id):
+            return
+        if user_id and await is_user_banned(user_id):
+            return
+        # ───────────────────────────────────────────────────────────────
+
         # Every incoming group message counts toward an active character's
         # 12-message lifetime, regardless of its content.
         if chat.id in last_characters:
@@ -84,7 +92,7 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
                 message_counts[chat_id] = 0
                 return
 
-        # ─── Frequency from DB (no clamp — sudo can set 1+) ─────────
+        # ─── Frequency from DB (no clamp — sudo can set 1+) ────────────
         chat_frequency = await user_totals_collection.find_one({'chat_id': chat_id})
         message_frequency = int(chat_frequency.get('message_frequency', 100)) if chat_frequency else 100
         if message_frequency < 1:
