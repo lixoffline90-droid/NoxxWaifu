@@ -98,8 +98,9 @@ async def trade_callback(update: Update, context: CallbackContext) -> None:
     _, action, sender_id_s, receiver_id_s, token = parts
     sender_id, receiver_id = int(sender_id_s), int(receiver_id_s)
 
-    if query.from_user.id != receiver_id:
-        await query.answer("Only the receiving user can accept this trade.", show_alert=True)
+    # ✅ Sender hi confirm/cancel karega
+    if query.from_user.id != sender_id:
+        await query.answer("Only the sender can confirm this trade.", show_alert=True)
         return
 
     key = (sender_id, receiver_id, token)
@@ -294,12 +295,13 @@ async def gift_callback(update: Update, context: CallbackContext) -> None:
         await query.answer("Invalid gift request.", show_alert=True)
         return
 
-    # 🔥 FIX: gift:SENDER:RECEIVER:TOKEN:ACTION (action LAST me hai)
+    # gift:SENDER:RECEIVER:TOKEN:ACTION
     _, sender_id_s, receiver_id_s, token, action = parts
     sender_id, receiver_id = int(sender_id_s), int(receiver_id_s)
 
-    if query.from_user.id != receiver_id:
-        await query.answer("Only the receiver can accept this gift.", show_alert=True)
+    # 🔥 AB SIRF SENDER HI CONFIRM/CANCEL KAR SAKTA HAI
+    if query.from_user.id != sender_id:
+        await query.answer("Only the sender can confirm this gift.", show_alert=True)
         return
 
     key = (sender_id, receiver_id, token)
@@ -366,7 +368,7 @@ async def gift_callback(update: Update, context: CallbackContext) -> None:
 
     pending_gifts.pop(key, None)
 
-    await query.answer("Gift accepted successfully!")
+    await query.answer("Gift sent successfully!")
 
     receiver_mention = (
         f'<a href="tg://user?id={receiver_id}">'
