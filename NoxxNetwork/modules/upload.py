@@ -49,6 +49,15 @@ WRONG_FORMAT_TEXT = """Wrong ❌️ format...
 21. 🫧 Special"""
 
 
+def _clear_inline_cache():
+    """Clear the inline query character cache so new uploads appear immediately."""
+    try:
+        from NoxxNetwork.modules.inlinequery import all_characters_cache
+        all_characters_cache.clear()
+    except Exception as e:
+        LOGGER.warning(f"Could not clear inline cache: {e}")
+
+
 async def get_next_sequence_number(sequence_name):
     sequence_collection = db.sequences
     sequence_document = await sequence_collection.find_one_and_update(
@@ -62,6 +71,9 @@ async def get_next_sequence_number(sequence_name):
     return sequence_document['sequence_value']
 
 
+# ---------------------------------------------------------------------------
+# /upload
+# ---------------------------------------------------------------------------
 async def upload(update: Update, context: CallbackContext) -> None:
     if str(update.effective_user.id) not in sudo_users:
         await update.message.reply_text('Ask My Owner...')
@@ -116,6 +128,10 @@ async def upload(update: Update, context: CallbackContext) -> None:
             )
             character['message_id'] = message.message_id
             await collection.insert_one(character)
+
+            # 🔥 Clear inline cache so new character shows up immediately
+            _clear_inline_cache()
+
             await update.message.reply_text(
                 f'✅ CHARACTER ADDED with ID <code>{id}</code>',
                 parse_mode='HTML',
@@ -123,6 +139,10 @@ async def upload(update: Update, context: CallbackContext) -> None:
         except Exception as channel_error:
             LOGGER.warning(f"Channel send failed, saving to DB only: {channel_error}")
             await collection.insert_one(character)
+
+            # 🔥 Clear inline cache
+            _clear_inline_cache()
+
             await update.message.reply_text(
                 f"✅ Character Added (ID <code>{id}</code>) but no Database Channel Found.",
                 parse_mode='HTML',
@@ -151,7 +171,7 @@ async def delete(update: Update, context: CallbackContext) -> None:
 
         raw_id = str(args[0]).strip()
 
-        # ─── Try multiple ID variants ───────────────────────────────────
+        # Try multiple ID variants
         character = None
         candidates = [raw_id, raw_id.zfill(2), raw_id.lstrip('0') or '0']
         for candidate in candidates:
@@ -171,13 +191,13 @@ async def delete(update: Update, context: CallbackContext) -> None:
         character_name = character.get('name', 'Unknown')
         old_message_id = character.get('message_id')
 
-        # ─── STEP 1: Delete from main characters collection (ALWAYS) ────
+        # 1️⃣ Delete from main characters collection (ALWAYS)
         delete_result = await collection.delete_one({'id': character_id})
         if delete_result.deleted_count == 0:
             await update.message.reply_text("❌ Failed to delete from database.")
             return
 
-        # ─── STEP 2: Pull from ALL user collections (best effort) ───────
+        # 2️⃣ Pull from ALL user collections
         removed_from_users = 0
         try:
             result = await user_collection.update_many(
@@ -188,7 +208,7 @@ async def delete(update: Update, context: CallbackContext) -> None:
         except Exception as e:
             LOGGER.warning(f"Failed to pull from user collections: {e}")
 
-        # ─── STEP 3: Try channel delete (best effort, channel may have changed)
+        # 3️⃣ Try channel delete (best effort)
         channel_status = "ℹ️ No channel message linked"
         if old_message_id:
             try:
@@ -206,7 +226,10 @@ async def delete(update: Update, context: CallbackContext) -> None:
                 else:
                     channel_status = f"⚠️ Channel delete failed"
 
-        # ─── STEP 4: Report ─────────────────────────────────────────────
+        # 🔥 Clear inline cache
+        _clear_inline_cache()
+
+        # 4️⃣ Report
         lines = [
             "✅ <b>Character Deleted</b>",
             "",
@@ -223,7 +246,7 @@ async def delete(update: Update, context: CallbackContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# UPDATE character
+# /update <id> <field> <value>
 # ---------------------------------------------------------------------------
 async def update_character(update: Update, context: CallbackContext) -> None:
     if str(update.effective_user.id) not in sudo_users:
@@ -286,7 +309,6 @@ async def update_character(update: Update, context: CallbackContext) -> None:
         old_message_id = character.get('message_id')
 
         if args[1] == 'img_url':
-            # Try delete old message (best effort — channel may have changed)
             if old_message_id:
                 try:
                     await context.bot.delete_message(
@@ -295,7 +317,6 @@ async def update_character(update: Update, context: CallbackContext) -> None:
                 except Exception as e:
                     LOGGER.warning(f"Old channel message delete failed: {e}")
 
-            # Send new photo to current channel
             try:
                 message = await context.bot.send_photo(
                     chat_id=CHARA_CHANNEL_ID,
@@ -309,7 +330,6 @@ async def update_character(update: Update, context: CallbackContext) -> None:
             except Exception as e:
                 LOGGER.warning(f"Channel update failed: {e}")
         else:
-            # Try to edit caption (best effort)
             if old_message_id:
                 try:
                     await context.bot.edit_message_caption(
@@ -320,6 +340,9 @@ async def update_character(update: Update, context: CallbackContext) -> None:
                     )
                 except Exception as e:
                     LOGGER.warning(f"Channel caption edit failed (channel changed?): {e}")
+
+        # 🔥 Clear inline cache
+        _clear_inline_cache()
 
         await update.message.reply_text(
             f'✅ Updated <code>{args[1]}</code> for character <code>{character_id}</code>.',
@@ -332,12 +355,9 @@ async def update_character(update: Update, context: CallbackContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# RESYNC CHANNEL — updates message_ids to current channel
+# /resync — re-upload all characters to current channel
 # ---------------------------------------------------------------------------
 async def resync_channel(update: Update, context: CallbackContext) -> None:
-    """Re-upload all characters to the NEW channel and update message_ids.
-    Use only when CHARA_CHANNEL_ID was changed.
-    """
     if str(update.effective_user.id) not in sudo_users:
         await update.message.reply_text('Ask my Owner to use this Command...')
         return
@@ -376,11 +396,9 @@ async def resync_channel(update: Update, context: CallbackContext) -> None:
             LOGGER.warning(f"Resync failed for {char.get('id')}: {e}")
             failed += 1
 
-        # Avoid Telegram rate limits
         import asyncio
         await asyncio.sleep(1.5)
 
-        # Progress every 10
         if (updated + failed) % 10 == 0:
             try:
                 await status.edit_text(
@@ -401,6 +419,9 @@ async def resync_channel(update: Update, context: CallbackContext) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Rarity probability
+# ---------------------------------------------------------------------------
 async def set_rarity_probability(update: Update, context: CallbackContext) -> None:
     if str(update.effective_user.id) not in sudo_users:
         await update.message.reply_text("Ask My Owner...")
@@ -430,6 +451,9 @@ async def show_rarity_probabilities(update: Update, context: CallbackContext) ->
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
+# ---------------------------------------------------------------------------
+# Handler registration
+# ---------------------------------------------------------------------------
 UPLOAD_HANDLER = CommandHandler('upload', upload, block=False)
 application.add_handler(UPLOAD_HANDLER)
 
