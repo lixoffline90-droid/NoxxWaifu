@@ -1,4 +1,5 @@
 import logging
+import os
 from telegram.ext import Application
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -16,7 +17,6 @@ LOGGER = logging.getLogger(__name__)
 
 from NoxxNetwork.config import Development as Config
 
-
 api_id = Config.api_id
 api_hash = Config.api_hash
 TOKEN = Config.TOKEN
@@ -30,14 +30,11 @@ BOT_USERNAME = Config.BOT_USERNAME
 sudo_users = Config.sudo_users
 OWNER_ID = Config.OWNER_ID
 
-# -----------------------------------------------------------------------------
-# PTB Application (only client — Pyrogram removed to avoid token clash)
-# -----------------------------------------------------------------------------
+# Main group ID — used by /ball and /spawn
+MAIN_CHAT_ID = int(os.getenv("MAIN_CHAT_ID", "-1004450386900"))
+
 application = Application.builder().token(TOKEN).build()
 
-# -----------------------------------------------------------------------------
-# MongoDB
-# -----------------------------------------------------------------------------
 lol = AsyncIOMotorClient(mongo_url)
 db = lol['Character_catcher']
 collection = db['anime_characters_lol']

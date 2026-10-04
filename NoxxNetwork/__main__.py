@@ -26,10 +26,18 @@ from NoxxNetwork import (
     UPDATE_CHAT,
     db,
     LOGGER,
+    MAIN_CHAT_ID,
 )
 from NoxxNetwork.modules import ALL_MODULES
 from NoxxNetwork.modules.moderation import is_user_banned, is_group_banned
-from NoxxNetwork.rarity import RARITIES, rarity_symbol, rarity_name, get_probability_table
+from NoxxNetwork.modules.spawn import get_all_rarity_configs
+from NoxxNetwork.rarity import (
+    RARITIES,
+    rarity_symbol,
+    rarity_name,
+    rarity_id_from_value,
+    get_probability_table,
+)
 
 
 locks = {}
@@ -39,8 +47,9 @@ last_characters = {}
 sent_characters = {}
 first_correct_guesses = {}
 message_counts = {}
-# Counts messages after the current character appears. Expiry is message-based.
 character_message_counts = {}
+total_msg_counts = {}        # per-chat total message counter (never resets)
+rarity_last_spawn = {}       # {chat_id: {rarity_id: total_at_last_spawn}}
 
 
 for module_name in ALL_MODULES:
@@ -60,7 +69,6 @@ def escape_markdown(text):
 # Message counter / spawning
 # -----------------------------------------------------------------------------
 async def message_counter(update: Update, context: CallbackContext) -> None:
-    """Count group messages and handle normal character spawning/12-message expiry."""
     chat = update.effective_chat
     if not chat or chat.type not in {"group", "supergroup"}:
         return
@@ -72,15 +80,16 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         locks[chat_id] = asyncio.Lock()
 
     async with locks[chat_id]:
-        # ─── Ban checks ────────────────────────────────────────────────
+        # Ban checks
         if await is_group_banned(chat.id):
             return
         if user_id and await is_user_banned(user_id):
             return
-        # ───────────────────────────────────────────────────────────────
 
-        # Every incoming group message counts toward an active character's
-        # 12-message lifetime, regardless of its content.
+        # Total counter (never resets — used for rarity frequency tracking)
+        total_msg_counts[chat_id] = total_msg_counts.get(chat_id, 0) + 1
+
+        # Active character expiry
         if chat.id in last_characters:
             character_message_counts[chat.id] = character_message_counts.get(chat.id, 0) + 1
             if character_message_counts[chat.id] >= 12:
@@ -92,13 +101,13 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
                 message_counts[chat_id] = 0
                 return
 
-        # ─── Frequency from DB (no clamp — sudo can set 1+) ────────────
+        # Frequency from DB (no clamp — sudo can set 1+)
         chat_frequency = await user_totals_collection.find_one({'chat_id': chat_id})
         message_frequency = int(chat_frequency.get('message_frequency', 100)) if chat_frequency else 100
         if message_frequency < 1:
             message_frequency = 100
 
-        # Anti-spam behavior
+        # Anti-spam
         if chat_id in last_user and last_user[chat_id]['user_id'] == user_id:
             last_user[chat_id]['count'] += 1
             if last_user[chat_id]['count'] >= 10:
@@ -120,13 +129,45 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
             message_counts[chat_id] = 0
 
 
-async def choose_character_by_rarity(all_characters):
-    """Choose a character using the globally configured rarity weights."""
+async def choose_character_by_rarity(all_characters, chat_id):
+    """Choose a character using rarity weights + per-rarity spawn config."""
     if not all_characters:
         return None
+
     probabilities = await get_probability_table()
-    grouped = {}
+    configs = await get_all_rarity_configs()
+
+    total = total_msg_counts.get(chat_id, 0)
+    chat_rarity_tracker = rarity_last_spawn.get(chat_id, {})
+
+    # ─── Filter characters by rarity spawn config ───────────────
+    filtered = []
     for character in all_characters:
+        rid = rarity_id_from_value(character.get('rarity'))
+        cfg = configs.get(rid, {'enabled': True, 'frequency': 0, 'scope': 'global'})
+
+        if not cfg['enabled']:
+            continue
+        if cfg['scope'] == 'main' and chat_id != str(MAIN_CHAT_ID):
+            continue
+        if cfg['frequency'] > 0:
+            last = chat_rarity_tracker.get(rid, -1)
+            if last < 0:
+                # never spawned → allow immediately? or require freq?
+                # Allow first spawn if this chat has enough total messages.
+                if total < cfg['frequency']:
+                    continue
+            else:
+                if total - last < cfg['frequency']:
+                    continue
+        filtered.append(character)
+
+    if not filtered:
+        return None
+
+    # Group by rarity name
+    grouped = {}
+    for character in filtered:
         grouped.setdefault(rarity_name(character.get('rarity')), []).append(character)
 
     weighted_groups = []
@@ -134,22 +175,25 @@ async def choose_character_by_rarity(all_characters):
         chars = grouped.get(name, [])
         weight = float(probabilities.get(number, 0))
         if chars and weight > 0:
-            weighted_groups.append((name, weight, chars))
+            weighted_groups.append((number, weight, chars))
 
     if not weighted_groups:
-        return random.choice(all_characters)
+        return random.choice(filtered)
 
-    chosen_name = random.choices(
+    chosen = random.choices(
         [item[0] for item in weighted_groups],
         weights=[item[1] for item in weighted_groups],
         k=1,
     )[0]
-    pool = next(item[2] for item in weighted_groups if item[0] == chosen_name)
-    return random.choice(pool)
+    pool = next(item[2] for item in weighted_groups if item[0] == chosen)
+    return random.choice(pool), chosen
 
 
 async def send_image(update: Update, context: CallbackContext) -> None:
-    chat_id = update.effective_chat.id
+    chat = update.effective_chat
+    chat_id = chat.id
+    chat_id_str = str(chat_id)
+
     all_characters = list(await collection.find({}).to_list(length=None))
     if not all_characters:
         return
@@ -162,9 +206,16 @@ async def send_image(update: Update, context: CallbackContext) -> None:
         sent_characters[chat_id] = []
         available = all_characters
 
-    character = await choose_character_by_rarity(available)
-    if not character:
+    result = await choose_character_by_rarity(available, chat_id_str)
+    if not result:
         return
+
+    character, chosen_rarity_id = result
+
+    # Track rarity spawn time
+    if chat_id_str not in rarity_last_spawn:
+        rarity_last_spawn[chat_id_str] = {}
+    rarity_last_spawn[chat_id_str][chosen_rarity_id] = total_msg_counts.get(chat_id_str, 0)
 
     sent_characters[chat_id].append(character['id'])
     last_characters[chat_id] = character
@@ -383,7 +434,6 @@ async def character_info_command(update: Update, context: CallbackContext) -> No
 # Handler registration + runner
 # -----------------------------------------------------------------------------
 def register_handlers() -> None:
-    """Register all PTB handlers. Must be called before the app starts."""
     application.add_handler(CommandHandler(["guess", "protecc", "collect", "grab", "hunt"], guess, block=False))
     application.add_handler(CommandHandler("fav", fav, block=False))
     application.add_handler(CommandHandler(["w", "info"], character_info_command, block=False))
@@ -392,7 +442,6 @@ def register_handlers() -> None:
 
 
 async def _ensure_indexes() -> None:
-    """Best-effort index creation for the inline query to stay fast."""
     try:
         from NoxxNetwork.modules.inlinequery import ensure_indexes
         await ensure_indexes()
@@ -401,17 +450,12 @@ async def _ensure_indexes() -> None:
 
 
 async def runner() -> None:
-    """Start PTB and keep it alive."""
     register_handlers()
-
     await _ensure_indexes()
-
     await application.initialize()
     await application.start()
     await application.updater.start_polling(drop_pending_updates=True)
     LOGGER.info("Bot started")
-
-    # Block forever
     await asyncio.Event().wait()
 
 
