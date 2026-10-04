@@ -6,7 +6,13 @@ from html import escape
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
 
-from NoxxNetwork import user_collection, application
+from NoxxNetwork import (
+    user_collection,
+    application,
+    collection,
+    sudo_users,
+    OWNER_ID,
+)
 from NoxxNetwork.rarity import rarity_symbol
 
 pending_trades = {}
@@ -15,6 +21,10 @@ pending_gifts = {}
 
 def _gift_key(sender_id, receiver_id, token):
     return f"gift:{sender_id}:{receiver_id}:{token}"
+
+
+def _is_sudo(user_id: int) -> bool:
+    return str(user_id) in sudo_users or user_id == OWNER_ID
 
 
 # ---------------------------------------------------------------------------
@@ -94,11 +104,9 @@ async def trade_callback(update: Update, context: CallbackContext) -> None:
         await query.answer("Invalid trade.", show_alert=True)
         return
 
-    # trade:ACTION:SENDER:RECEIVER:TOKEN
     _, action, sender_id_s, receiver_id_s, token = parts
     sender_id, receiver_id = int(sender_id_s), int(receiver_id_s)
 
-    # ✅ Sender hi confirm/cancel karega
     if query.from_user.id != sender_id:
         await query.answer("Only the sender can confirm this trade.", show_alert=True)
         return
@@ -168,11 +176,12 @@ async def trade_callback(update: Update, context: CallbackContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# GIFT
+# GIFT  —  sudo/owner kisi bhi character ko gift kar sakte hain
 # ---------------------------------------------------------------------------
 async def gift(update: Update, context: CallbackContext) -> None:
     message = update.effective_message
-    sender_id = update.effective_user.id
+    sender = update.effective_user
+    sender_id = sender.id
 
     if not message.reply_to_message or not message.reply_to_message.from_user:
         await message.reply_text("Rᴇᴘʟʏ ᴛᴏ ᴛʜᴇ ᴜsᴇʀ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ɢɪғᴛ ᴛᴏ.")
@@ -189,21 +198,46 @@ async def gift(update: Update, context: CallbackContext) -> None:
         await message.reply_text("U sᴀɢᴇ: /gift <character_id>")
         return
 
-    character_id = str(context.args[0])
+    character_id = str(context.args[0]).strip()
 
-    sender = await user_collection.find_one({'id': sender_id})
-    if not sender or not sender.get('characters'):
-        await message.reply_text("Yᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴀɴʏ ᴄʜᴀʀᴀᴄᴛᴇʀs.")
-        return
+    is_sudo = _is_sudo(sender_id)
 
-    character = next(
-        (c for c in sender['characters'] if str(c.get('id')) == character_id),
-        None,
-    )
-    if not character:
-        await message.reply_text("Yᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴛʜɪs ᴄʜᴀʀᴀᴄᴛᴇʀ.")
-        return
+    # ─── Find character ────────────────────────────────────────────────
+    if is_sudo:
+        # Sudo/Owner: kisi bhi character ko gift kar sakte hain (chahe unke paas ho ya na ho)
+        character = await collection.find_one({'id': character_id})
+        if not character:
+            # try zero-padded
+            character = await collection.find_one({'id': character_id.zfill(2)})
+        if not character:
+            # try stripped
+            character = await collection.find_one({'id': character_id.lstrip('0') or '0'})
 
+        if not character:
+            await message.reply_text(
+                f"❌ Cʜᴀʀᴀᴄᴛᴇʀ ᴡɪᴛʜ ID <code>{character_id}</code> ɴᴏᴛ ғᴏᴜɴᴅ ɪɴ ᴅᴀᴛᴀʙᴀsᴇ.",
+                parse_mode='HTML',
+            )
+            return
+
+        source_collection_owned = False  # sudo kisi ke bhi paas se nahi le rahe
+    else:
+        # Normal user: sirf apni collection se
+        sender_doc = await user_collection.find_one({'id': sender_id})
+        if not sender_doc or not sender_doc.get('characters'):
+            await message.reply_text("Yᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴀɴʏ ᴄʜᴀʀᴀᴄᴛᴇʀs.")
+            return
+
+        character = next(
+            (c for c in sender_doc['characters'] if str(c.get('id')) == character_id),
+            None,
+        )
+        if not character:
+            await message.reply_text("Yᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴛʜɪs ᴄʜᴀʀᴀᴄᴛᴇʀ.")
+            return
+        source_collection_owned = True
+
+    # ─── Build pending gift ────────────────────────────────────────────
     token = uuid.uuid4().hex[:10]
     key = (sender_id, receiver_id, token)
 
@@ -211,6 +245,7 @@ async def gift(update: Update, context: CallbackContext) -> None:
         'character': character,
         'receiver_username': receiver.username,
         'receiver_first_name': receiver.first_name or 'User',
+        'sender_owned': source_collection_owned,   # True = remove from sender; False = sudo gift (spawn-like)
         'expires_at': time.monotonic() + 120,
     }
     pending_gifts[key] = gift_data
@@ -229,6 +264,8 @@ async def gift(update: Update, context: CallbackContext) -> None:
         f"Aɴɪᴍᴇ: {escape(str(character.get('anime', 'Unknown')))}\n"
         f"ID: {escape(str(character.get('id', character_id)))}"
     )
+    if not source_collection_owned:
+        caption += "\n\n<i>👑 Sᴜᴅᴏ Gɪғᴛ — ɴᴏɴ-ᴏᴡɴᴇʀ sᴘᴀᴡɴ</i>"
 
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton(
@@ -299,7 +336,7 @@ async def gift_callback(update: Update, context: CallbackContext) -> None:
     _, sender_id_s, receiver_id_s, token, action = parts
     sender_id, receiver_id = int(sender_id_s), int(receiver_id_s)
 
-    # 🔥 AB SIRF SENDER HI CONFIRM/CANCEL KAR SAKTA HAI
+    # Only sender can confirm/cancel
     if query.from_user.id != sender_id:
         await query.answer("Only the sender can confirm this gift.", show_alert=True)
         return
@@ -332,29 +369,35 @@ async def gift_callback(update: Update, context: CallbackContext) -> None:
                 pass
         return
 
-    sender = await user_collection.find_one({'id': sender_id})
-    if not sender:
-        pending_gifts.pop(key, None)
-        await query.answer("Sender collection not found.", show_alert=True)
-        return
-
     character = gift_data['character']
-    sender_chars = list(sender.get('characters', []))
-    idx = next(
-        (i for i, c in enumerate(sender_chars) if str(c.get('id')) == str(character.get('id'))),
-        None,
-    )
+    sender_owned = gift_data.get('sender_owned', True)
 
-    if idx is None:
-        pending_gifts.pop(key, None)
-        await query.answer("The sender no longer has this character.", show_alert=True)
-        return
+    # ─── Remove from sender's collection ONLY if sender owned it ─────
+    if sender_owned:
+        sender_doc = await user_collection.find_one({'id': sender_id})
+        if not sender_doc:
+            pending_gifts.pop(key, None)
+            await query.answer("Sender collection not found.", show_alert=True)
+            return
 
-    sender_chars.pop(idx)
-    await user_collection.update_one({'id': sender_id}, {'$set': {'characters': sender_chars}})
+        sender_chars = list(sender_doc.get('characters', []))
+        idx = next(
+            (i for i, c in enumerate(sender_chars) if str(c.get('id')) == str(character.get('id'))),
+            None,
+        )
+        if idx is None:
+            pending_gifts.pop(key, None)
+            await query.answer("The sender no longer has this character.", show_alert=True)
+            return
 
-    receiver = await user_collection.find_one({'id': receiver_id})
-    if receiver:
+        sender_chars.pop(idx)
+        await user_collection.update_one(
+            {'id': sender_id}, {'$set': {'characters': sender_chars}}
+        )
+
+    # ─── Add to receiver ─────────────────────────────────────────────
+    receiver_doc = await user_collection.find_one({'id': receiver_id})
+    if receiver_doc:
         await user_collection.update_one(
             {'id': receiver_id}, {'$push': {'characters': character}}
         )
