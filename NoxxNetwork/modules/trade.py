@@ -3,10 +3,10 @@ import time
 import uuid
 from html import escape
 
-from pyrogram import filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
 
-from NoxxNetwork import user_collection, Waifuu
+from NoxxNetwork import user_collection, application
 from NoxxNetwork.rarity import rarity_symbol
 
 pending_trades = {}
@@ -20,22 +20,25 @@ def _gift_key(sender_id, receiver_id, token):
 # ---------------------------------------------------------------------------
 # TRADE
 # ---------------------------------------------------------------------------
-@Waifuu.on_message(filters.command("trade"))
-async def trade(client, message):
-    sender_id = message.from_user.id
+async def trade(update: Update, context: CallbackContext) -> None:
+    message = update.effective_message
+    sender_id = update.effective_user.id
+
     if not message.reply_to_message or not message.reply_to_message.from_user:
         await message.reply_text("Rᴇᴘʟʏ ᴛᴏ ᴛʜᴇ ᴜsᴇʀ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ᴛʀᴀᴅᴇ ᴡɪᴛʜ.")
         return
+
     receiver_id = message.reply_to_message.from_user.id
     if sender_id == receiver_id:
         await message.reply_text("Yᴏᴜ ᴄᴀɴ'ᴛ ᴛʀᴀᴅᴇ ᴀ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴡɪᴛʜ ʏᴏᴜʀsᴇʟғ!")
         return
-    if len(message.command) != 3:
+
+    if len(context.args) != 2:
         await message.reply_text("U sᴀɢᴇ: /trade <your_id> <their_id>")
         return
 
-    sender_character_id = str(message.command[1])
-    receiver_character_id = str(message.command[2])
+    sender_character_id = str(context.args[0])
+    receiver_character_id = str(context.args[1])
 
     sender = await user_collection.find_one({'id': sender_id})
     receiver = await user_collection.find_one({'id': receiver_id})
@@ -83,40 +86,44 @@ async def trade(client, message):
     )
 
 
-@Waifuu.on_callback_query(filters.regex(r'^trade:'))
-async def trade_callback(client, callback_query):
-    parts = callback_query.data.split(':')
+async def trade_callback(update: Update, context: CallbackContext) -> None:
+    query = update.callback_query
+    parts = query.data.split(':')
+
     if len(parts) != 5:
-        await callback_query.answer("Invalid trade.", show_alert=True)
+        await query.answer("Invalid trade.", show_alert=True)
         return
 
     _, action, sender_id_s, receiver_id_s, token = parts
     sender_id, receiver_id = int(sender_id_s), int(receiver_id_s)
 
-    if callback_query.from_user.id != receiver_id:
-        await callback_query.answer("Only the receiving user can accept this trade.", show_alert=True)
+    if query.from_user.id != receiver_id:
+        await query.answer("Only the receiving user can accept this trade.", show_alert=True)
         return
 
     key = (sender_id, receiver_id, token)
     trade_data = pending_trades.get(key)
 
     if not trade_data:
-        await callback_query.answer("This trade has expired or was cancelled.", show_alert=True)
+        await query.answer("This trade has expired or was cancelled.", show_alert=True)
         return
 
     if time.monotonic() >= trade_data['expires_at']:
         pending_trades.pop(key, None)
-        await callback_query.answer("This trade has expired.", show_alert=True)
+        await query.answer("This trade has expired.", show_alert=True)
         try:
-            await callback_query.message.edit_text("❌ Tʀᴀᴅᴇ Exᴘɪʀᴇᴅ")
+            await query.message.edit_text("❌ Tʀᴀᴅᴇ Exᴘɪʀᴇᴅ")
         except Exception:
             pass
         return
 
     if action == 'cancel':
         pending_trades.pop(key, None)
-        await callback_query.answer("Trade cancelled.")
-        await callback_query.message.edit_text("❌ Tʀᴀᴅᴇ Cᴀɴᴄᴇʟʟᴇᴅ")
+        await query.answer("Trade cancelled.")
+        try:
+            await query.message.edit_text("❌ Tʀᴀᴅᴇ Cᴀɴᴄᴇʟʟᴇᴅ")
+        except Exception:
+            pass
         return
 
     sender = await user_collection.find_one({'id': sender_id})
@@ -124,7 +131,7 @@ async def trade_callback(client, callback_query):
 
     if not sender or not receiver:
         pending_trades.pop(key, None)
-        await callback_query.answer("User collection not found.", show_alert=True)
+        await query.answer("User collection not found.", show_alert=True)
         return
 
     sid, rid = trade_data['sender_character_id'], trade_data['receiver_character_id']
@@ -137,7 +144,7 @@ async def trade_callback(client, callback_query):
 
     if s_idx is None or r_idx is None:
         pending_trades.pop(key, None)
-        await callback_query.answer("One of the characters is no longer available.", show_alert=True)
+        await query.answer("One of the characters is no longer available.", show_alert=True)
         return
 
     sender_character = sender_chars.pop(s_idx)
@@ -151,16 +158,19 @@ async def trade_callback(client, callback_query):
 
     pending_trades.pop(key, None)
 
-    await callback_query.answer("Trade completed!")
-    await callback_query.message.edit_text("🤝 Tʀᴀᴅᴇ Cᴏᴍᴘʟᴇᴛᴇᴅ Sᴜᴄᴄᴇssғᴜʟʟʏ! ✅")
+    await query.answer("Trade completed!")
+    try:
+        await query.message.edit_text("🤝 Tʀᴀᴅᴇ Cᴏᴍᴘʟᴇᴛᴇᴅ Sᴜᴄᴄᴇssғᴜʟʟʏ! ✅")
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
 # GIFT
 # ---------------------------------------------------------------------------
-@Waifuu.on_message(filters.command("gift"))
-async def gift(client, message):
-    sender_id = message.from_user.id
+async def gift(update: Update, context: CallbackContext) -> None:
+    message = update.effective_message
+    sender_id = update.effective_user.id
 
     if not message.reply_to_message or not message.reply_to_message.from_user:
         await message.reply_text("Rᴇᴘʟʏ ᴛᴏ ᴛʜᴇ ᴜsᴇʀ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ɢɪғᴛ ᴛᴏ.")
@@ -173,11 +183,11 @@ async def gift(client, message):
         await message.reply_text("Yᴏᴜ ᴄᴀɴ'ᴛ ɢɪғᴛ ᴀ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴛᴏ ʏᴏᴜʀsᴇʟғ!")
         return
 
-    if len(message.command) != 2:
+    if len(context.args) != 1:
         await message.reply_text("U sᴀɢᴇ: /gift <character_id>")
         return
 
-    character_id = str(message.command[1])
+    character_id = str(context.args[0])
 
     sender = await user_collection.find_one({'id': sender_id})
     if not sender or not sender.get('characters'):
@@ -241,13 +251,13 @@ async def gift(client, message):
     else:
         sent = await message.reply_text(caption, parse_mode='HTML', reply_markup=markup)
 
-    gift_data['message_id'] = sent.id
+    gift_data['message_id'] = sent.message_id
     gift_data['chat_id'] = message.chat.id
 
-    asyncio.create_task(_expire_gift(key, gift_data))
+    asyncio.create_task(_expire_gift(context, key, gift_data))
 
 
-async def _expire_gift(key, gift_data):
+async def _expire_gift(context: CallbackContext, key, gift_data):
     await asyncio.sleep(max(0, gift_data['expires_at'] - time.monotonic()))
     if pending_gifts.get(key) is not gift_data:
         return
@@ -255,69 +265,73 @@ async def _expire_gift(key, gift_data):
 
     text = "❌ <b>Gɪғᴛ Exᴘɪʀᴇᴅ</b>\n\nTʜᴇ 2-ᴍɪɴᴜᴛᴇ ᴛɪᴍᴇʟɪᴍɪᴛ ʜᴀs ᴘᴀssᴇᴅ."
     try:
-        await Waifuu.edit_message_caption(
-            gift_data['chat_id'],
-            gift_data['message_id'],
-            text,
-            parse_mode='html',
+        await context.bot.edit_message_caption(
+            chat_id=gift_data['chat_id'],
+            message_id=gift_data['message_id'],
+            caption=text,
+            parse_mode='HTML',
             reply_markup=None,
         )
     except Exception:
         try:
-            await Waifuu.edit_message_text(
-                gift_data['chat_id'],
-                gift_data['message_id'],
-                text,
-                parse_mode='html',
+            await context.bot.edit_message_text(
+                chat_id=gift_data['chat_id'],
+                message_id=gift_data['message_id'],
+                text=text,
+                parse_mode='HTML',
                 reply_markup=None,
             )
         except Exception:
             pass
 
 
-@Waifuu.on_callback_query(filters.regex(r'^gift:'))
-async def gift_callback(client, callback_query):
-    parts = callback_query.data.split(':')
+async def gift_callback(update: Update, context: CallbackContext) -> None:
+    query = update.callback_query
+    parts = query.data.split(':')
+
     if len(parts) != 5:
-        await callback_query.answer("Invalid gift request.", show_alert=True)
+        await query.answer("Invalid gift request.", show_alert=True)
         return
 
     _, action, sender_id_s, receiver_id_s, token = parts
     sender_id, receiver_id = int(sender_id_s), int(receiver_id_s)
 
-    if callback_query.from_user.id != receiver_id:
-        await callback_query.answer("Only the receiver can accept this gift.", show_alert=True)
+    if query.from_user.id != receiver_id:
+        await query.answer("Only the receiver can accept this gift.", show_alert=True)
         return
 
     key = (sender_id, receiver_id, token)
     gift_data = pending_gifts.get(key)
 
     if not gift_data:
-        await callback_query.answer("This gift has expired or was cancelled.", show_alert=True)
+        await query.answer("This gift has expired or was cancelled.", show_alert=True)
         return
 
     if time.monotonic() >= gift_data['expires_at']:
         pending_gifts.pop(key, None)
-        await callback_query.answer("This gift has expired.", show_alert=True)
+        await query.answer("This gift has expired.", show_alert=True)
         return
 
     if action == 'cancel':
         pending_gifts.pop(key, None)
-        await callback_query.answer("Gift cancelled.")
+        await query.answer("Gift cancelled.")
         try:
-            await callback_query.message.edit_caption(
+            await query.message.edit_caption(
                 "❌ <b>Gɪғᴛ Cᴀɴᴄᴇʟʟᴇᴅ</b>\n\nTʜᴇ ᴄʜᴀʀᴀᴄᴛᴇʀ ʜᴀs ɴᴏᴛ ʙᴇᴇɴ sᴇɴᴛ.",
-                parse_mode='html',
+                parse_mode='HTML',
                 reply_markup=None,
             )
         except Exception:
-            await callback_query.message.edit_text("❌ Gɪғᴛ Cᴀɴᴄᴇʟʟᴇᴅ", reply_markup=None)
+            try:
+                await query.message.edit_text("❌ Gɪғᴛ Cᴀɴᴄᴇʟʟᴇᴅ", reply_markup=None)
+            except Exception:
+                pass
         return
 
     sender = await user_collection.find_one({'id': sender_id})
     if not sender:
         pending_gifts.pop(key, None)
-        await callback_query.answer("Sender collection not found.", show_alert=True)
+        await query.answer("Sender collection not found.", show_alert=True)
         return
 
     character = gift_data['character']
@@ -329,7 +343,7 @@ async def gift_callback(client, callback_query):
 
     if idx is None:
         pending_gifts.pop(key, None)
-        await callback_query.answer("The sender no longer has this character.", show_alert=True)
+        await query.answer("The sender no longer has this character.", show_alert=True)
         return
 
     sender_chars.pop(idx)
@@ -350,7 +364,7 @@ async def gift_callback(client, callback_query):
 
     pending_gifts.pop(key, None)
 
-    await callback_query.answer("Gift accepted successfully!")
+    await query.answer("Gift accepted successfully!")
 
     receiver_mention = (
         f'<a href="tg://user?id={receiver_id}">'
@@ -359,6 +373,19 @@ async def gift_callback(client, callback_query):
     success = f"🎁 <b>Gɪғᴛ sᴜᴄᴄᴇssғᴜʟʟʏ sᴇɴᴛ ᴛᴏ</b>\n{receiver_mention}"
 
     try:
-        await callback_query.message.edit_caption(success, parse_mode='html', reply_markup=None)
+        await query.message.edit_caption(success, parse_mode='HTML', reply_markup=None)
     except Exception:
-        await callback_query.message.edit_text(success, parse_mode='html', reply_markup=None)
+        try:
+            await query.message.edit_text(success, parse_mode='HTML', reply_markup=None)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# HANDLER REGISTRATION
+# ---------------------------------------------------------------------------
+application.add_handler(CommandHandler("trade", trade, block=False))
+application.add_handler(CallbackQueryHandler(trade_callback, pattern=r'^trade:', block=False))
+
+application.add_handler(CommandHandler("gift", gift, block=False))
+application.add_handler(CallbackQueryHandler(gift_callback, pattern=r'^gift:', block=False))

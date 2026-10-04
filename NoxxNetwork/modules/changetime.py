@@ -1,43 +1,51 @@
-from pymongo import  ReturnDocument
-from pyrogram.enums import ChatMemberStatus, ChatType
-from NoxxNetwork import user_totals_collection, Waifuu
-from pyrogram import Client, filters
-from pyrogram.types import Message
+from telegram import Update
+from telegram.ext import CommandHandler, CallbackContext
+from pymongo import ReturnDocument
 
-ADMINS = [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]
+from NoxxNetwork import user_totals_collection, application
 
 
-@Waifuu.on_message(filters.command(["changetime", "setchangetime"]))
-async def change_time(client: Client, message: Message):
-    
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-    member = await Waifuu.get_chat_member(chat_id,user_id)
-        
+async def change_time(update: Update, context: CallbackContext) -> None:
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
 
-    if member.status not in ADMINS :
-        await message.reply_text('⚠️ Oɴʟʏ ɢʀᴏᴜᴘ ᴀᴅᴍɪɴs ᴄᴀɴ ᴜsᴇ ᴛʜɪs.')
+    # Check admin
+    try:
+        member = await context.bot.get_chat_member(chat_id, user_id)
+        status = str(getattr(member, "status", "")).lower()
+        if status not in {"administrator", "creator"}:
+            await update.message.reply_text('⚠️ Oɴʟʏ ɢʀᴏᴜᴘ ᴀᴅᴍɪɴs ᴄᴀɴ ᴜsᴇ ᴛʜɪs.')
+            return
+    except Exception:
+        await update.message.reply_text('⚠️ Cᴏᴜʟᴅ ɴᴏᴛ ᴠᴇʀɪғʏ ᴀᴅᴍɪɴ sᴛᴀᴛᴜs.')
         return
 
     try:
-        args = message.command
-        if len(args) != 2:
-            await message.reply_text('⚙️ U sᴀɢᴇ: /changetime 100')
+        args = context.args
+        if len(args) != 1:
+            await update.message.reply_text('⚙️ U sᴀɢᴇ: /changetime 100')
             return
 
-        new_frequency = int(args[1])
+        new_frequency = int(args[0])
         if new_frequency < 100:
-            await message.reply_text('⚠️ Fʀᴇǫᴜᴇɴᴄʏ ᴍᴜsᴛ ʙᴇ 100 ᴏʀ ʜɪɢʜᴇʀ.')
+            await update.message.reply_text('⚠️ Fʀᴇǫᴜᴇɴᴄʏ ᴍᴜsᴛ ʙᴇ 100 ᴏʀ ʜɪɢʜᴇʀ.')
             return
 
-    
-        chat_frequency = await user_totals_collection.find_one_and_update(
+        await user_totals_collection.find_one_and_update(
             {'chat_id': str(chat_id)},
             {'$set': {'message_frequency': new_frequency}},
             upsert=True,
-            return_document=ReturnDocument.AFTER
+            return_document=ReturnDocument.AFTER,
         )
 
-        await message.reply_text(f'✅ Sᴘᴀᴡɴ Fʀᴇǫᴜᴇɴᴄʏ Uᴘᴅᴀᴛᴇᴅ\n\n✦ Nᴇᴡ ғʀᴇǫᴜᴇɴᴄʏ: {new_frequency} ᴍᴇssᴀɢᴇs')
+        await update.message.reply_text(
+            f'✅ Sᴘᴀᴡɴ Fʀᴇǫᴜᴇɴᴄʏ Uᴘᴅᴀᴛᴇᴅ\n\n'
+            f'✦ Nᴇᴡ ғʀᴇǫᴜᴇɴᴄʏ: {new_frequency} ᴍᴇssᴀɢᴇs'
+        )
     except Exception as e:
-        await message.reply_text(f'❌ Fᴀɪʟᴇᴅ Tᴏ Uᴘᴅᴀᴛᴇ\n\n{str(e)}')
+        await update.message.reply_text(f'❌ Fᴀɪʟᴇᴅ Tᴏ Uᴘᴅᴀᴛᴇ\n\n{str(e)}')
+
+
+application.add_handler(
+    CommandHandler(["changetime", "setchangetime"], change_time, block=False)
+)
