@@ -1,6 +1,4 @@
 import logging
-import os
-from pyrogram import Client
 from telegram.ext import Application
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -11,11 +9,13 @@ logging.basicConfig(
 )
 
 logging.getLogger("apscheduler").setLevel(logging.ERROR)
-logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("pyrate_limiter").setLevel(logging.ERROR)
+logging.getLogger("pyrogram").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
 from NoxxNetwork.config import Development as Config
+
 
 api_id = Config.api_id
 api_hash = Config.api_hash
@@ -30,8 +30,14 @@ BOT_USERNAME = Config.BOT_USERNAME
 sudo_users = Config.sudo_users
 OWNER_ID = Config.OWNER_ID
 
+# -----------------------------------------------------------------------------
+# PTB Application (only client — Pyrogram removed to avoid token clash)
+# -----------------------------------------------------------------------------
 application = Application.builder().token(TOKEN).build()
-Waifuu = Client("NoxxNetwork", api_id, api_hash, bot_token=TOKEN)
+
+# -----------------------------------------------------------------------------
+# MongoDB
+# -----------------------------------------------------------------------------
 lol = AsyncIOMotorClient(mongo_url)
 db = lol['Character_catcher']
 collection = db['anime_characters_lol']

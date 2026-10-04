@@ -21,9 +21,12 @@ from NoxxNetwork import (
     group_user_totals_collection,
     user_collection,
     user_totals_collection,
-    Waifuu,
+    application,
+    SUPPORT_CHAT,
+    UPDATE_CHAT,
+    db,
+    LOGGER,
 )
-from NoxxNetwork import application, SUPPORT_CHAT, UPDATE_CHAT, db, LOGGER
 from NoxxNetwork.modules import ALL_MODULES
 from NoxxNetwork.rarity import RARITIES, rarity_symbol, rarity_name, get_probability_table
 
@@ -35,7 +38,7 @@ last_characters = {}
 sent_characters = {}
 first_correct_guesses = {}
 message_counts = {}
-# Counts messages after the current character appears. Expiry is message-based, never time-based.
+# Counts messages after the current character appears. Expiry is message-based.
 character_message_counts = {}
 
 
@@ -52,6 +55,9 @@ def escape_markdown(text):
     return re.sub(r'([%s])' % re.escape(escape_chars), r'\\\1', text)
 
 
+# -----------------------------------------------------------------------------
+# Message counter / spawning
+# -----------------------------------------------------------------------------
 async def message_counter(update: Update, context: CallbackContext) -> None:
     """Count group messages and handle normal character spawning/12-message expiry."""
     chat = update.effective_chat
@@ -75,7 +81,6 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
                 character_message_counts.pop(chat.id, None)
                 if expired:
                     await send_expiry_notice(update, context, expired)
-                # Start a fresh normal-spawn counter after an expiry.
                 message_counts[chat_id] = 0
                 return
 
@@ -83,8 +88,7 @@ async def message_counter(update: Update, context: CallbackContext) -> None:
         message_frequency = int(chat_frequency.get('message_frequency', 100)) if chat_frequency else 100
         message_frequency = max(100, message_frequency)
 
-        # Keep the existing anti-spam behavior, but the active character was
-        # already counted above as requested (any group message counts).
+        # Anti-spam behavior
         if chat_id in last_user and last_user[chat_id]['user_id'] == user_id:
             last_user[chat_id]['count'] += 1
             if last_user[chat_id]['count'] >= 10:
@@ -178,6 +182,9 @@ async def send_expiry_notice(update: Update, context: CallbackContext, character
     )
 
 
+# -----------------------------------------------------------------------------
+# Guess
+# -----------------------------------------------------------------------------
 async def guess(update: Update, context: CallbackContext) -> None:
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
@@ -279,6 +286,9 @@ async def guess(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text('Incorrect Name.. ❌️')
 
 
+# -----------------------------------------------------------------------------
+# Fav
+# -----------------------------------------------------------------------------
 async def fav(update: Update, context: CallbackContext) -> None:
     user_id = update.effective_user.id
 
@@ -305,6 +315,9 @@ async def fav(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text(f'Character {character["name"]} has been added to your favorite...')
 
 
+# -----------------------------------------------------------------------------
+# Character Info
+# -----------------------------------------------------------------------------
 async def character_info_callback(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
@@ -356,6 +369,9 @@ async def character_info_command(update: Update, context: CallbackContext) -> No
     await update.message.reply_photo(photo=character.get('img_url'), caption=caption, parse_mode='HTML')
 
 
+# -----------------------------------------------------------------------------
+# Handler registration + runner
+# -----------------------------------------------------------------------------
 def register_handlers() -> None:
     """Register all PTB handlers. Must be called before the app starts."""
     application.add_handler(CommandHandler(["guess", "protecc", "collect", "grab", "hunt"], guess, block=False))
@@ -370,25 +386,22 @@ async def _ensure_indexes() -> None:
     try:
         from NoxxNetwork.modules.inlinequery import ensure_indexes
         await ensure_indexes()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         LOGGER.warning("Index creation skipped: %s", exc)
 
 
 async def runner() -> None:
-    """Start Pyrogram and PTB on the SAME event loop and keep them alive."""
+    """Start PTB and keep it alive."""
     register_handlers()
 
     await _ensure_indexes()
-
-    await Waifuu.start()
-    LOGGER.info("Pyrogram client started")
 
     await application.initialize()
     await application.start()
     await application.updater.start_polling(drop_pending_updates=True)
     LOGGER.info("Bot started")
 
-    # Block forever — both clients now share this loop.
+    # Block forever
     await asyncio.Event().wait()
 
 
