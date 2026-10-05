@@ -323,8 +323,21 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
 
     characters = list(user['characters'])
 
-    if mode == 'fav_id' and fav_id_filter:
-        candidates = [fav_id_filter, fav_id_filter.zfill(2), fav_id_filter.lstrip('0') or '0']
+    # 🔥 FILTER LOGIC
+    # fav_name mode → show all chars with same NAME (Option B)
+    # fav_id mode → fallback: show only exact ID (old records)
+    if mode == 'fav_name' and fav_id_filter:
+        characters = [
+            c for c in characters
+            if str(c.get('name', '')).lower() == str(fav_id_filter).lower()
+        ]
+    elif mode == 'fav_id' and fav_id_filter:
+        # Old fallback — exact ID match with zero-padding
+        candidates = [
+            fav_id_filter,
+            fav_id_filter.zfill(2),
+            fav_id_filter.lstrip('0') or '0',
+        ]
         characters = [c for c in characters if str(c.get('id')) in candidates]
     elif mode == 'rarity' and rarity_filter_id:
         characters = [
@@ -363,9 +376,9 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
                 f"🌸 <b>Yᴏᴜ ᴅᴏɴ'ᴛ ᴏᴡɴ ᴀɴʏ {emoji} {escape(name)} ᴄʜᴀʀᴀᴄᴛᴇʀs</b>\n\n"
                 f"Usᴇ <code>/whmode</code> ᴛᴏ ᴄʜᴀɴɢᴇ ᴛʜᴇ ʜᴀʀᴇᴍ ᴍᴏᴅᴇ."
             )
-        elif mode == 'fav_id':
+        elif mode in ('fav_id', 'fav_name'):
             text = (
-                f"🌸 <b>Nᴏ ᴄʜᴀʀᴀᴄᴛᴇʀ ғᴏᴜɴᴅ ᴡɪᴛʜ ɪᴅ {escape(fav_id_filter)}</b>\n\n"
+                f"🌸 <b>Nᴏ ᴄʜᴀʀᴀᴄᴛᴇʀs ғᴏᴜɴᴅ ғᴏʀ {escape(fav_id_filter)}</b>\n\n"
                 f"Usᴇ <code>/whfav off</code> ᴛᴏ ʀᴇsᴇᴛ."
             )
         else:
@@ -396,7 +409,9 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
     favorite_ids = {str(x) for x in user.get('favorites', [])}
 
     mode_badge = ""
-    if mode == 'fav_id' and fav_id_filter:
+    if mode == 'fav_name' and fav_id_filter:
+        mode_badge = f"\n<i>Mᴏᴅᴇ: ♡ {escape(fav_id_filter)}</i>"
+    elif mode == 'fav_id' and fav_id_filter:
         mode_badge = f"\n<i>Mᴏᴅᴇ: ғᴀᴠ ID <code>{escape(fav_id_filter)}</code></i>"
     elif mode == 'rarity' and rarity_filter_id:
         emoji, name = RARITIES.get(rarity_filter_id, ("⚪", "Common"))
@@ -413,7 +428,7 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
     )
 
     # ─── Display ─────────────────────────────────────────────────
-    if mode in ('rarity', 'characters', 'fav_id'):
+    if mode in ('rarity', 'characters', 'fav_id', 'fav_name'):
         # Flat list (no anime grouping)
         for character in current_characters:
             cid = str(character['id'])
