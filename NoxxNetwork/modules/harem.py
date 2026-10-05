@@ -35,7 +35,6 @@ FORCE_JOIN_TEXT = (
     "🔔 <b>ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴛʜᴇ ғᴏʟʟᴏᴡɪɴɢ ᴛᴏ ᴄᴏɴᴛɪɴᴜᴇ:</b>\n\n"
     "✦ ᴜᴘᴅᴀᴛᴇ ᴄʜᴀɴɴᴇʟ\n"
     "✦ sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ\n\n"
-    "<i>Join request bhejte hi verify ho jaoge ✅</i>"
 )
 
 
