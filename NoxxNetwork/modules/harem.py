@@ -8,6 +8,9 @@ from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
 from telegram.error import BadRequest, TelegramError
 
 from NoxxNetwork import application, collection, user_collection, SUPPORT_CHAT, UPDATE_CHAT, db
+
+# 👇 Hardcoded harem support group (change karo apna username)
+HAREM_SUPPORT_CHAT = "https://t.me/+A3bmzLTMu5sxMWVh"
 from NoxxNetwork.rarity import rarity_symbol, rarity_name, rarity_id_from_value, RARITIES
 
 harem_mode_col = db['harem_modes']
@@ -68,7 +71,7 @@ async def _is_joined(context, user_id, chat_value):
 def _force_join_markup():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📢 Jᴏɪɴ Uᴘᴅᴀᴛᴇ Cʜᴀɴɴᴇʟ ↗", url=_join_url(UPDATE_CHAT))],
-        [InlineKeyboardButton("💬 Jᴏɪɴ Sᴜᴘᴘᴏʀᴛ Gʀᴏᴜᴘ ↗", url=_join_url(SUPPORT_CHAT))],
+        [InlineKeyboardButton("💬 Jᴏɪɴ Sᴜᴘᴘᴏʀᴛ Gʀᴏᴜᴘ ↗", url=_join_url(HAREM_SUPPORT_CHAT))],
         [InlineKeyboardButton("↻ Cʜᴇᴄᴋ Aɢᴀɪɴ", callback_data="harem_check")],
     ])
 
@@ -96,7 +99,7 @@ async def _show_force_join(update, context, verification_error=False):
 async def ensure_joined(update, context):
     user_id = update.effective_user.id
     u_joined, u_ok = await _is_joined(context, user_id, UPDATE_CHAT)
-    s_joined, s_ok = await _is_joined(context, user_id, SUPPORT_CHAT)
+    s_joined, s_ok = await _is_joined(context, user_id, HAREM_SUPPORT_CHAT)
     if u_joined and s_joined:
         return True
     await _show_force_join(update, context, verification_error=not (u_ok and s_ok))
