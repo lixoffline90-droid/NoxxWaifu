@@ -108,15 +108,15 @@ async def whmode(update: Update, context: CallbackContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# /whfav <character_id>  — show ONLY that character in harem
+# /whfav <character_id>  — show ALL characters with the same NAME (Option B)
 # ---------------------------------------------------------------------------
 async def whfav(update: Update, context: CallbackContext) -> None:
     user = update.effective_user
 
     if not context.args:
         await update.message.reply_text(
-            "U sᴀɢᴇ: <code>/whfav &lt;character_id&gt;</code>\n\n"
-            "Exᴀᴍᴘʟᴇ: <code>/whfav 4246</code>\n\n"
+            "Usᴀɢᴇ: <code>/whfav &lt;character_id&gt;</code>\n\n"
+            "Exᴀᴍᴘʟᴇ: <code>/whfav 1768</code>\n\n"
             "Tᴏ ᴛᴜʀɴ ᴏғғ: <code>/whfav off</code>",
             parse_mode='HTML',
         )
@@ -133,36 +133,45 @@ async def whfav(update: Update, context: CallbackContext) -> None:
         )
         return
 
-    # Verify character exists in user's collection
+    # Get user's collection
     user_doc = await user_collection.find_one({'id': user.id})
     owned = user_doc.get('characters', []) if user_doc else []
 
-    candidates = [raw_id, raw_id.zfill(2), raw_id.lstrip('0') or '0']
+    # Find the reference character (exact ID match)
     matched = None
     for c in owned:
-        if str(c.get('id')) in candidates:
+        if str(c.get('id')) == raw_id:
             matched = c
             break
 
     if not matched:
         await update.message.reply_text(
-            f"❌ Yᴏᴜ ᴅᴏɴ'ᴛ ᴏᴡɴ ᴄʜᴀʀᴀᴄᴛᴇʀ <code>{raw_id}</code>.",
+            f"❌ Yᴏᴜ ᴅᴏɴ'ᴛ ᴏᴡɴ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴡɪᴛʜ ɪᴅ <code>{raw_id}</code>.",
             parse_mode='HTML',
         )
         return
 
     char_id = str(matched.get('id'))
-    char_name = escape(str(matched.get('name', 'Unknown')))
-    char_rarity = escape(str(matched.get('rarity', 'Unknown')))
+    char_name = str(matched.get('name', 'Unknown'))
 
-    await set_harem_mode(user.id, 'fav_id', 0, char_id)
+    # 🔥 Save the NAME (not just ID) — so all characters with same name show
+    await set_harem_mode(user.id, 'fav_name', 0, char_name)
+
+    # Count how many variants/copies of this name
+    same_name_count = sum(
+        1 for c in owned if str(c.get('name', '')).lower() == char_name.lower()
+    )
+    same_name_unique = len({
+        str(c.get('id')) for c in owned
+        if str(c.get('name', '')).lower() == char_name.lower()
+    })
 
     await update.message.reply_text(
         f"🌸 <b>Hᴀʀᴇᴍ Mᴏᴅᴇ Sᴇᴛ</b>\n\n"
-        f"🎴 Cʜᴀʀᴀᴄᴛᴇʀ: <b>{char_name}</b>\n"
-        f"🆔 ID: <code>{char_id}</code>\n"
-        f"⭐ Rᴀʀɪᴛʏ: {char_rarity}\n\n"
-        f"Nᴏᴡ /harem ᴡɪʟʟ sʜᴏᴡ ᴏɴʟʏ ᴛʜɪs ᴄʜᴀʀᴀᴄᴛᴇʀ.\n"
+        f"🎴 Cʜᴀʀᴀᴄᴛᴇʀ: <b>{escape(char_name)}</b>\n"
+        f"🆔 Rᴇғ ID: <code>{char_id}</code>\n\n"
+        f"📊 Yᴏᴜ ᴏᴡɴ <b>{same_name_unique}</b> ᴜɴɪǫᴜᴇ ᴠᴀʀɪᴀɴᴛs ({same_name_count} ᴛᴏᴛᴀʟ ᴄᴏᴘɪᴇs)\n\n"
+        f"Nᴏᴡ /harem ᴡɪʟʟ sʜᴏᴡ ᴀʟʟ <b>{escape(char_name)}</b> ᴄʜᴀʀᴀᴄᴛᴇʀs.\n"
         f"Tᴏ ᴛᴜʀɴ ᴏғғ: <code>/whfav off</code>",
         parse_mode='HTML',
     )
