@@ -7,12 +7,20 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
 from telegram.error import BadRequest, TelegramError
 
-from NoxxNetwork import application, collection, user_collection, SUPPORT_CHAT, UPDATE_CHAT, db
+from NoxxNetwork import (
+    application,
+    collection,
+    user_collection,
+    SUPPORT_CHAT,
+    UPDATE_CHAT,
+    db,
+    LOGGER,  # 🔥 use this instead of context.application.logger
+)
 from NoxxNetwork.rarity import rarity_symbol, rarity_name, rarity_id_from_value, RARITIES
 
 harem_mode_col = db['harem_modes']
 
-# 🔥 Hardcoded harem support group (change karne ke liye ye line edit karo)
+# 🔥 Hardcoded harem support group (private invite link)
 HAREM_SUPPORT_CHAT = "https://t.me/+A3bmzLTMu5sxMWVh"
 
 FORCE_JOIN_TEXT = (
@@ -20,6 +28,16 @@ FORCE_JOIN_TEXT = (
     "✦ ᴜᴘᴅᴀᴛᴇ ᴄʜᴀɴɴᴇʟ\n"
     "✦ sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ"
 )
+
+
+def _is_private_invite(value: str) -> bool:
+    """Private invite links like https://t.me/+XXXX cannot be checked by bots."""
+    if not value:
+        return False
+    v = str(value).strip()
+    if "+" in v and "t.me/" in v:
+        return True
+    return False
 
 
 def _chat_ref(value):
@@ -50,9 +68,18 @@ def _join_url(value):
 
 
 async def _is_joined(context, user_id, chat_value):
+    """Check membership. Returns (joined, verified).
+
+    Private invite links (+xxx) cannot be verified → fail-open.
+    """
+    # 🔥 Private invite links → can't be checked by bot → always pass
+    if _is_private_invite(chat_value):
+        return True, False
+
     ref = _chat_ref(chat_value)
     if not ref:
         return True, True
+
     try:
         chat = await context.bot.get_chat(ref)
         member = await context.bot.get_chat_member(chat_id=chat.id, user_id=user_id)
@@ -62,7 +89,8 @@ async def _is_joined(context, user_id, chat_value):
             joined = bool(getattr(member, "is_member", False))
         return joined, True
     except TelegramError as exc:
-        context.application.logger.warning(
+        # 🔥 Use LOGGER instead of context.application.logger
+        LOGGER.warning(
             "Force join check failed: chat=%r user=%s error=%s", ref, user_id, exc
         )
         return True, False
@@ -100,8 +128,11 @@ async def ensure_joined(update, context):
     user_id = update.effective_user.id
     u_joined, u_ok = await _is_joined(context, user_id, UPDATE_CHAT)
     s_joined, s_ok = await _is_joined(context, user_id, HAREM_SUPPORT_CHAT)
+
+    # 🔥 If support is private invite (s_ok=False), always pass that check
     if u_joined and s_joined:
         return True
+
     await _show_force_join(update, context, verification_error=not (u_ok and s_ok))
     return False
 
@@ -144,7 +175,6 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
 
     characters = list(user['characters'])
 
-    # Apply filters
     if mode == 'fav_id' and fav_id_filter:
         candidates = [fav_id_filter, fav_id_filter.zfill(2), fav_id_filter.lstrip('0') or '0']
         characters = [c for c in characters if str(c.get('id')) in candidates]
@@ -154,7 +184,6 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
             if rarity_id_from_value(c.get('rarity')) == rarity_filter_id
         ]
 
-    # Sorting
     if mode == 'characters':
         characters = sorted(
             characters,
@@ -179,7 +208,6 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
             key=lambda x: (str(x.get('anime', '')), str(x.get('id', ''))),
         )
 
-    # Empty check
     if not characters:
         if mode == 'rarity' and rarity_filter_id:
             emoji, name = RARITIES.get(rarity_filter_id, ("⚪", "Common"))
@@ -204,7 +232,6 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
                 pass
         return
 
-    # Counts
     character_counts = {}
     for character in characters:
         cid = str(character['id'])
@@ -217,7 +244,6 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
     current_characters = unique_characters[page * 15:(page + 1) * 15]
     favorite_ids = {str(x) for x in user.get('favorites', [])}
 
-    # Mode badge
     mode_badge = ""
     if mode == 'fav_id' and fav_id_filter:
         mode_badge = f"\n<i>Mᴏᴅᴇ: ғᴀᴠ ID <code>{escape(fav_id_filter)}</code></i>"
@@ -235,7 +261,6 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
         f"{mode_badge}\n"
     )
 
-    # Display
     if mode in ('rarity', 'characters', 'fav_id'):
         for character in current_characters:
             cid = str(character['id'])
@@ -259,7 +284,6 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
                     f"{escape(str(character['name']))} ×{character_counts[cid]}{star}\n"
                 )
 
-    # Keyboard
     keyboard = [[
         InlineKeyboardButton(
             f"♡ Sᴇᴇ Cᴏʟʟᴇᴄᴛɪᴏɴ • {len(user['characters'])}",
@@ -279,7 +303,6 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
     keyboard.append([InlineKeyboardButton("↻ Rᴇғʀᴇsʜ", callback_data=f"harem:{page}:{user_id}")])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Image
     all_user_chars = list(user['characters'])
     selected = next(
         (c for c in all_user_chars if str(c['id']) in favorite_ids and c.get('img_url')),
