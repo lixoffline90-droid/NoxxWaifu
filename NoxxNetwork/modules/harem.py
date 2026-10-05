@@ -24,12 +24,28 @@ from NoxxNetwork import (
 )
 from NoxxNetwork.rarity import rarity_symbol, rarity_name, rarity_id_from_value, RARITIES
 
+# 🔥 Style helpers (from whstyle.py)
+try:
+    from NoxxNetwork.modules.whstyle import (
+        get_user_style,
+        format_anime_header,
+        format_char_line,
+        post_anime_block,
+    )
+    _HAS_STYLE = True
+except Exception as _e:
+    LOGGER.warning(f"whstyle module not available, using default styles: {_e}")
+    _HAS_STYLE = False
+
 harem_mode_col = db['harem_modes']
 join_requests_col = db['join_requests']
 
 # 🔥 Private group config
 PRIVATE_GROUP_ID = -1004450386900
 HAREM_SUPPORT_CHAT = "https://t.me/+A3bmzLTMu5sxMWVh"
+
+# 🔥 Pagination config
+CHARS_PER_PAGE = 10
 
 FORCE_JOIN_TEXT = (
     "🔔 <b>ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴛʜᴇ ғᴏʟʟᴏᴡɪɴɢ ᴛᴏ ᴄᴏɴᴛɪɴᴜᴇ:</b>\n\n"
@@ -38,6 +54,56 @@ FORCE_JOIN_TEXT = (
 )
 
 
+# ──────────────────────────────────────────────────────────────
+# Fallback style helpers (agar whstyle.py na ho)
+# ──────────────────────────────────────────────────────────────
+def _fallback_anime_header(style: int, anime: str, count: int, total: int) -> str:
+    a = escape(str(anime))
+    return f"\n<b>✦ {a}</b> <i>{count}/{total}</i>"
+
+
+def _fallback_char_line(style, char_id, name, sym, count, is_fav=False):
+    cid = escape(str(char_id))
+    n = escape(str(name))
+    s = escape(str(sym))
+    star = " ♡" if is_fav else ""
+    return f"↪ <b>[{s}]</b> {cid} {n} ×{count}{star}\n"
+
+
+def _fallback_post(style: int) -> str:
+    return ""
+
+
+async def _get_style(user_id: int) -> int:
+    if _HAS_STYLE:
+        try:
+            return await get_user_style(user_id)
+        except Exception:
+            return 0
+    return 0
+
+
+def _anime_header(style, anime, count, total):
+    if _HAS_STYLE:
+        return format_anime_header(style, anime, count, total)
+    return _fallback_anime_header(style, anime, count, total)
+
+
+def _char_line(style, cid, name, sym, count, is_fav=False):
+    if _HAS_STYLE:
+        return format_char_line(style, cid, name, sym, count, is_fav)
+    return _fallback_char_line(style, cid, name, sym, count, is_fav)
+
+
+def _post_block(style):
+    if _HAS_STYLE:
+        return post_anime_block(style)
+    return _fallback_post(style)
+
+
+# ──────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────
 def _join_url(value):
     if not value:
         return "https://t.me/"
@@ -115,7 +181,7 @@ async def _check_public_chat(context, user_id, chat_value) -> bool:
         LOGGER.warning(
             "Public chat check failed: chat=%r user=%s error=%s", ref, user_id, exc
         )
-        # Fail-open for public chats (can't verify due to bot not being admin etc.)
+        # Fail-open for public chats
         return True
 
 
@@ -151,10 +217,7 @@ async def ensure_joined(update, context):
     """Returns True if user is member OR has sent join request."""
     user_id = update.effective_user.id
 
-    # Update channel check (public)
     u_ok = await _check_public_chat(context, user_id, UPDATE_CHAT)
-
-    # Private group check (member OR join request)
     g_ok = await _check_private_group(context, user_id)
 
     if u_ok and g_ok:
@@ -165,14 +228,10 @@ async def ensure_joined(update, context):
 
 
 # ──────────────────────────────────────────────────────────────
-# 🔥 JOIN REQUEST HANDLER — records user when they send request
+# 🔥 JOIN REQUEST HANDLER
 # ──────────────────────────────────────────────────────────────
 async def handle_join_request(update: Update, context: CallbackContext) -> None:
-    """Fires when a user sends a join request to the private group.
-
-    Records user so they can use /harem even before admin approves.
-    Admin will approve later (bot doesn't auto-approve).
-    """
+    """Records user when they send a join request to the private group."""
     try:
         request = update.chat_join_request
         if not request:
@@ -181,11 +240,9 @@ async def handle_join_request(update: Update, context: CallbackContext) -> None:
         chat_id = request.chat.id
         user = request.from_user
 
-        # Only care about our private group
         if chat_id != PRIVATE_GROUP_ID:
             return
 
-        # Save to DB
         await join_requests_col.update_one(
             {'user_id': user.id, 'chat_id': chat_id},
             {
@@ -204,7 +261,6 @@ async def handle_join_request(update: Update, context: CallbackContext) -> None:
             f"Join request received: user={user.id} ({user.first_name}) chat={chat_id}"
         )
 
-        # Notify user they're verified
         try:
             await context.bot.send_message(
                 chat_id=user.id,
@@ -261,6 +317,9 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
     mode = mode_pref['mode']
     rarity_filter_id = mode_pref['rarity_id']
     fav_id_filter = mode_pref['fav_id']
+
+    # 🔥 Get user's style
+    style = await _get_style(user_id)
 
     characters = list(user['characters'])
 
@@ -328,9 +387,12 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
 
     unique_characters = list({str(c['id']): c for c in characters}.values())
 
-    total_pages = max(1, math.ceil(len(unique_characters) / 15))
+    # 🔥 10 per page
+    total_pages = max(1, math.ceil(len(unique_characters) / CHARS_PER_PAGE))
     page = max(0, min(page, total_pages - 1))
-    current_characters = unique_characters[page * 15:(page + 1) * 15]
+    current_characters = unique_characters[
+        page * CHARS_PER_PAGE:(page + 1) * CHARS_PER_PAGE
+    ]
     favorite_ids = {str(x) for x in user.get('favorites', [])}
 
     mode_badge = ""
@@ -350,29 +412,38 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
         f"{mode_badge}\n"
     )
 
+    # ─── Display ─────────────────────────────────────────────────
     if mode in ('rarity', 'characters', 'fav_id'):
+        # Flat list (no anime grouping)
         for character in current_characters:
             cid = str(character['id'])
-            star = " ♡" if cid in favorite_ids else ""
-            symbol = escape(rarity_symbol(character.get('rarity')))
-            harem_message += (
-                f"↪ <b>[{symbol}]</b> {escape(cid)} "
-                f"{escape(str(character['name']))} ×{character_counts[cid]}{star}\n"
+            is_fav = cid in favorite_ids
+            symbol = rarity_symbol(character.get('rarity'))
+            harem_message += _char_line(
+                style, cid, str(character['name']), symbol,
+                character_counts[cid], is_fav,
             )
     else:
-        for anime, anime_chars in groupby(current_characters, key=lambda x: x.get('anime', 'Unknown')):
+        # Grouped by anime
+        for anime, anime_chars in groupby(
+            current_characters, key=lambda x: x.get('anime', 'Unknown')
+        ):
             anime_chars = list(anime_chars)
             total_anime = await collection.count_documents({'anime': anime})
-            harem_message += f"\n<b>✦ {escape(str(anime))}</b> <i>{len(anime_chars)}/{total_anime}</i>\n"
+            harem_message += _anime_header(
+                style, str(anime), len(anime_chars), total_anime
+            ) + "\n"
             for character in anime_chars:
                 cid = str(character['id'])
-                star = " ♡" if cid in favorite_ids else ""
-                symbol = escape(rarity_symbol(character.get('rarity')))
-                harem_message += (
-                    f"↪ <b>[{symbol}]</b> {escape(cid)} "
-                    f"{escape(str(character['name']))} ×{character_counts[cid]}{star}\n"
+                is_fav = cid in favorite_ids
+                symbol = rarity_symbol(character.get('rarity'))
+                harem_message += _char_line(
+                    style, cid, str(character['name']), symbol,
+                    character_counts[cid], is_fav,
                 )
+            harem_message += _post_block(style)
 
+    # ─── Keyboard ────────────────────────────────────────────────
     keyboard = [[
         InlineKeyboardButton(
             f"♡ Sᴇᴇ Cᴏʟʟᴇᴄᴛɪᴏɴ • {len(user['characters'])}",
@@ -383,15 +454,24 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
     if total_pages > 1:
         nav = []
         if page > 0:
-            nav.append(InlineKeyboardButton("‹ Pʀᴇᴠ", callback_data=f"harem:{page - 1}:{user_id}"))
-        nav.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data=f"harem:{page}:{user_id}"))
+            nav.append(InlineKeyboardButton(
+                "‹ Pʀᴇᴠ", callback_data=f"harem:{page - 1}:{user_id}"
+            ))
+        nav.append(InlineKeyboardButton(
+            f"{page + 1}/{total_pages}", callback_data=f"harem:{page}:{user_id}"
+        ))
         if page < total_pages - 1:
-            nav.append(InlineKeyboardButton("Nᴇxᴛ ›", callback_data=f"harem:{page + 1}:{user_id}"))
+            nav.append(InlineKeyboardButton(
+                "Nᴇxᴛ ›", callback_data=f"harem:{page + 1}:{user_id}"
+            ))
         keyboard.append(nav)
 
-    keyboard.append([InlineKeyboardButton("↻ Rᴇғʀᴇsʜ", callback_data=f"harem:{page}:{user_id}")])
+    keyboard.append([InlineKeyboardButton(
+        "↻ Rᴇғʀᴇsʜ", callback_data=f"harem:{page}:{user_id}"
+    )])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
+    # ─── Image ───────────────────────────────────────────────────
     all_user_chars = list(user['characters'])
     selected = next(
         (c for c in all_user_chars if str(c['id']) in favorite_ids and c.get('img_url')),
@@ -448,6 +528,7 @@ async def harem_callback(update: Update, context: CallbackContext):
     except (ValueError, AttributeError):
         return
 
+    # 🔥 Only the harem owner can navigate
     if query.from_user.id != owner_id:
         await query.answer("Iᴛ's Nᴏᴛ Yᴏᴜʀ Hᴀʀᴇᴍ.", show_alert=True)
         return
