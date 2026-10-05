@@ -8,12 +8,12 @@ from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
 from telegram.error import BadRequest, TelegramError
 
 from NoxxNetwork import application, collection, user_collection, SUPPORT_CHAT, UPDATE_CHAT, db
-
-# 👇 Hardcoded harem support group (change karo apna username)
-HAREM_SUPPORT_CHAT = "https://t.me/+A3bmzLTMu5sxMWVh"
 from NoxxNetwork.rarity import rarity_symbol, rarity_name, rarity_id_from_value, RARITIES
 
 harem_mode_col = db['harem_modes']
+
+# 🔥 Hardcoded harem support group (change karne ke liye ye line edit karo)
+HAREM_SUPPORT_CHAT = "https://t.me/+A3bmzLTMu5sxMWVh"
 
 FORCE_JOIN_TEXT = (
     "🔔 <b>ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴛʜᴇ ғᴏʟʟᴏᴡɪɴɢ ᴛᴏ ᴄᴏɴᴛɪɴᴜᴇ:</b>\n\n"
