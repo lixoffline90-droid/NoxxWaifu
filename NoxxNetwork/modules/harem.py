@@ -2,9 +2,15 @@ from html import escape
 from itertools import groupby
 import math
 import random
+import time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
+from telegram.ext import (
+    CommandHandler,
+    CallbackContext,
+    CallbackQueryHandler,
+    ChatJoinRequestHandler,
+)
 from telegram.error import BadRequest, TelegramError
 
 from NoxxNetwork import (
@@ -14,30 +20,32 @@ from NoxxNetwork import (
     SUPPORT_CHAT,
     UPDATE_CHAT,
     db,
-    LOGGER,  # 🔥 use this instead of context.application.logger
+    LOGGER,
 )
 from NoxxNetwork.rarity import rarity_symbol, rarity_name, rarity_id_from_value, RARITIES
 
 harem_mode_col = db['harem_modes']
+join_requests_col = db['join_requests']
 
-# 🔥 Hardcoded harem support group (private invite link)
+# 🔥 Private group config
+PRIVATE_GROUP_ID = -1004450386900
 HAREM_SUPPORT_CHAT = "https://t.me/+A3bmzLTMu5sxMWVh"
 
 FORCE_JOIN_TEXT = (
     "🔔 <b>ᴘʟᴇᴀsᴇ ᴊᴏɪɴ ᴛʜᴇ ғᴏʟʟᴏᴡɪɴɢ ᴛᴏ ᴄᴏɴᴛɪɴᴜᴇ:</b>\n\n"
     "✦ ᴜᴘᴅᴀᴛᴇ ᴄʜᴀɴɴᴇʟ\n"
-    "✦ sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ"
+    "✦ sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ\n\n"
+    "<i>Join request bhejte hi verify ho jaoge ✅</i>"
 )
 
 
-def _is_private_invite(value: str) -> bool:
-    """Private invite links like https://t.me/+XXXX cannot be checked by bots."""
+def _join_url(value):
     if not value:
-        return False
-    v = str(value).strip()
-    if "+" in v and "t.me/" in v:
-        return True
-    return False
+        return "https://t.me/"
+    value = str(value).strip()
+    if value.startswith(("http://", "https://")):
+        return value
+    return f"https://t.me/{value.lstrip('@')}"
 
 
 def _chat_ref(value):
@@ -58,42 +66,58 @@ def _chat_ref(value):
         return "@" + value
 
 
-def _join_url(value):
-    if not value:
-        return "https://t.me/"
-    value = str(value).strip()
-    if value.startswith(("http://", "https://")):
-        return value
-    return f"https://t.me/{value.lstrip('@')}"
+async def _check_private_group(context, user_id) -> bool:
+    """Check if user is member OR has sent a join request."""
+    # 1️⃣ Member check
+    try:
+        member = await context.bot.get_chat_member(
+            chat_id=PRIVATE_GROUP_ID,
+            user_id=user_id,
+        )
+        status = str(getattr(member, "status", "")).lower()
+        if status in {"creator", "administrator", "member"}:
+            return True
+        if status == "restricted" and getattr(member, "is_member", False):
+            return True
+    except TelegramError as exc:
+        LOGGER.warning(
+            "Private group membership check failed: user=%s error=%s", user_id, exc
+        )
+
+    # 2️⃣ Join request check
+    try:
+        req = await join_requests_col.find_one({
+            'user_id': user_id,
+            'chat_id': PRIVATE_GROUP_ID,
+        })
+        if req:
+            return True
+    except Exception as exc:
+        LOGGER.warning(f"Join request lookup failed: {exc}")
+
+    return False
 
 
-async def _is_joined(context, user_id, chat_value):
-    """Check membership. Returns (joined, verified).
-
-    Private invite links (+xxx) cannot be verified → fail-open.
-    """
-    # 🔥 Private invite links → can't be checked by bot → always pass
-    if _is_private_invite(chat_value):
-        return True, False
-
+async def _check_public_chat(context, user_id, chat_value) -> bool:
+    """Check membership in a public chat/channel."""
     ref = _chat_ref(chat_value)
     if not ref:
-        return True, True
-
+        return True
     try:
         chat = await context.bot.get_chat(ref)
         member = await context.bot.get_chat_member(chat_id=chat.id, user_id=user_id)
         status = str(getattr(member, "status", "")).lower()
-        joined = status in {"creator", "administrator", "member"}
-        if status == "restricted":
-            joined = bool(getattr(member, "is_member", False))
-        return joined, True
+        if status in {"creator", "administrator", "member"}:
+            return True
+        if status == "restricted" and getattr(member, "is_member", False):
+            return True
+        return False
     except TelegramError as exc:
-        # 🔥 Use LOGGER instead of context.application.logger
         LOGGER.warning(
-            "Force join check failed: chat=%r user=%s error=%s", ref, user_id, exc
+            "Public chat check failed: chat=%r user=%s error=%s", ref, user_id, exc
         )
-        return True, False
+        # Fail-open for public chats (can't verify due to bot not being admin etc.)
+        return True
 
 
 def _force_join_markup():
@@ -109,7 +133,7 @@ async def _show_force_join(update, context, verification_error=False):
     if verification_error:
         text += (
             "\n\n⚠️ <b>ᴠᴇʀɪғɪᴄᴀᴛɪᴏɴ ᴜɴᴀᴠᴀɪʟᴀʙʟᴇ</b>\n"
-            "Mᴀᴋᴇ sᴜʀᴇ ᴛʜᴇ ʙᴏᴛ ɪs ᴀᴅᴍɪɴ ɪɴ ʙᴏᴛʜ ᴄʜᴀᴛs ᴀɴᴅ ᴛʜᴇ ᴄʜᴀᴛ ᴜsᴇʀɴᴀᴍᴇs ᴀʀᴇ ᴄᴏʀʀᴇᴄᴛ."
+            "Mᴀᴋᴇ sᴜʀᴇ ᴛʜᴇ ʙᴏᴛ ɪs ᴀᴅᴍɪɴ ɪɴ ʙᴏᴛʜ ᴄʜᴀᴛs."
         )
     markup = _force_join_markup()
     if update.message:
@@ -125,18 +149,84 @@ async def _show_force_join(update, context, verification_error=False):
 
 
 async def ensure_joined(update, context):
+    """Returns True if user is member OR has sent join request."""
     user_id = update.effective_user.id
-    u_joined, u_ok = await _is_joined(context, user_id, UPDATE_CHAT)
-    s_joined, s_ok = await _is_joined(context, user_id, HAREM_SUPPORT_CHAT)
 
-    # 🔥 If support is private invite (s_ok=False), always pass that check
-    if u_joined and s_joined:
+    # Update channel check (public)
+    u_ok = await _check_public_chat(context, user_id, UPDATE_CHAT)
+
+    # Private group check (member OR join request)
+    g_ok = await _check_private_group(context, user_id)
+
+    if u_ok and g_ok:
         return True
 
-    await _show_force_join(update, context, verification_error=not (u_ok and s_ok))
+    await _show_force_join(update, context, verification_error=False)
     return False
 
 
+# ──────────────────────────────────────────────────────────────
+# 🔥 JOIN REQUEST HANDLER — records user when they send request
+# ──────────────────────────────────────────────────────────────
+async def handle_join_request(update: Update, context: CallbackContext) -> None:
+    """Fires when a user sends a join request to the private group.
+
+    Records user so they can use /harem even before admin approves.
+    Admin will approve later (bot doesn't auto-approve).
+    """
+    try:
+        request = update.chat_join_request
+        if not request:
+            return
+
+        chat_id = request.chat.id
+        user = request.from_user
+
+        # Only care about our private group
+        if chat_id != PRIVATE_GROUP_ID:
+            return
+
+        # Save to DB
+        await join_requests_col.update_one(
+            {'user_id': user.id, 'chat_id': chat_id},
+            {
+                '$set': {
+                    'user_id': user.id,
+                    'chat_id': chat_id,
+                    'first_name': user.first_name,
+                    'username': user.username,
+                    'requested_at': int(time.time()),
+                }
+            },
+            upsert=True,
+        )
+
+        LOGGER.info(
+            f"Join request received: user={user.id} ({user.first_name}) chat={chat_id}"
+        )
+
+        # Notify user they're verified
+        try:
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=(
+                    "✅ <b>Vᴇʀɪғɪᴇᴅ!</b>\n\n"
+                    "Yᴏᴜʀ ᴊᴏɪɴ ʀᴇǫᴜᴇsᴛ ʜᴀs ʙᴇᴇɴ ʀᴇᴄᴏʀᴅᴇᴅ.\n"
+                    "Yᴏᴜ ᴄᴀɴ ɴᴏᴡ ᴜsᴇ <code>/harem</code> ɪɴ ᴛʜᴇ ʙᴏᴛ.\n\n"
+                    "<i>Yᴏᴜʀ ᴊᴏɪɴ ʀᴇǫᴜᴇsᴛ ᴡɪʟʟ ʙᴇ ᴀᴘᴘʀᴏᴠᴇᴅ ʙʏ ᴀɴ ᴀᴅᴍɪɴ sᴏᴏɴ.</i>"
+                ),
+                parse_mode='HTML',
+            )
+        except Exception as exc:
+            LOGGER.warning(f"Could not DM user {user.id}: {exc}")
+
+    except Exception as exc:
+        LOGGER.exception(f"handle_join_request error: {exc}")
+
+
+# ──────────────────────────────────────────────────────────────
+# HAREM MODE
+# ──────────────────────────────────────────────────────────────
 async def _get_harem_mode(user_id: int) -> dict:
     doc = await harem_mode_col.find_one({'user_id': user_id})
     if not doc:
@@ -366,7 +456,11 @@ async def harem_callback(update: Update, context: CallbackContext):
     await harem(update, context, page, checked=True)
 
 
+# ──────────────────────────────────────────────────────────────
+# HANDLERS
+# ──────────────────────────────────────────────────────────────
 application.add_handler(CommandHandler(["harem", "collection"], harem, block=False))
 application.add_handler(
     CallbackQueryHandler(harem_callback, pattern=r'^harem(?:_|:)', block=False)
 )
+application.add_handler(ChatJoinRequestHandler(handle_join_request, block=False))
