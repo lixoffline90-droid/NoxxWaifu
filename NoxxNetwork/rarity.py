@@ -29,6 +29,7 @@ RARITIES = {
     20: ("🪼", "Exotic"),
     21: ("🫧", "Special"),
     22: ("💝", "Velentine"),
+    23: ("👶🏻", "Chibi Edition"),
 }
 
 # Distinct defaults. They are weights, so they do not have to total exactly 100.
@@ -56,6 +57,7 @@ DEFAULT_PROBABILITIES = {
     20: 1.0,
     21: 6.0,
     22: 1.0,
+    23: 9.0,
 }
 
 # Compatibility aliases for characters uploaded before the 21-rarity system.
