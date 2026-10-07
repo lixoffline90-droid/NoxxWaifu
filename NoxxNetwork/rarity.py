@@ -28,8 +28,8 @@ RARITIES = {
     19: ("🪢", "Corrupted"),
     20: ("🪼", "Exotic"),
     21: ("🫧", "Special"),
-    22: ("💝", "Velentine"),
-    23: ("👶🏻", "Chibi Edition"),
+    22: ("💝", "Valentine"),
+    23: ("🧶", "Crochet Edition"),
 }
 
 # Distinct defaults. They are weights, so they do not have to total exactly 100.
