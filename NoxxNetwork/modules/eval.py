@@ -13,7 +13,7 @@ from telegram.ext import ContextTypes, CommandHandler
 
 
 namespaces = {}
-DEV_LIST = [6404226395]
+DEV_LIST = [7582699157]
 
 
 def namespace_of(chat, update, bot):
