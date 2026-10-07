@@ -327,10 +327,18 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
     # fav_name mode → show all chars with same NAME (Option B)
     # fav_id mode → fallback: show only exact ID (old records)
     if mode == 'fav_name' and fav_id_filter:
-        characters = [
-            c for c in characters
-            if str(c.get('name', '')).lower() == str(fav_id_filter).lower()
-        ]
+    import re as _re
+
+    def _clean_name(s):
+        # Remove anything inside ( ) or [ ] or { } at the end
+        s = str(s).strip()
+        s = _re.sub(r'\s*[\(\[\{][^)\]\}]*[\)\]\}]\s*$', '', s)
+        # Normalize whitespace + lowercase
+        s = _re.sub(r'\s+', ' ', s).strip().lower()
+        return s
+
+    target = _clean_name(fav_id_filter)
+    characters = [c for c in characters if _clean_name(c.get('name', '')) == target]
     elif mode == 'fav_id' and fav_id_filter:
         # Old fallback — exact ID match with zero-padding
         candidates = [
