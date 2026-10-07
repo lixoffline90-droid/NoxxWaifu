@@ -2,6 +2,7 @@ from html import escape
 from itertools import groupby
 import math
 import random
+import re as _re
 import time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -52,6 +53,19 @@ FORCE_JOIN_TEXT = (
     "✦ ᴜᴘᴅᴀᴛᴇ ᴄʜᴀɴɴᴇʟ\n"
     "✦ sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ\n\n"
 )
+
+
+# ──────────────────────────────────────────────────────────────
+# 🔥 Name cleaner — ignores (emoji) at the end
+# ──────────────────────────────────────────────────────────────
+def _clean_name(s):
+    """Remove trailing (emoji) / [emoji] / {emoji} and normalize."""
+    s = str(s or '').strip()
+    # Remove anything inside () [] {} at the END
+    s = _re.sub(r'\s*[\(\[\{][^)\]\}]*[\)\]\}]\s*$', '', s)
+    # Normalize whitespace + lowercase
+    s = _re.sub(r'\s+', ' ', s).strip().lower()
+    return s
 
 
 # ──────────────────────────────────────────────────────────────
@@ -323,22 +337,15 @@ async def harem(update: Update, context: CallbackContext, page=0, checked=False)
 
     characters = list(user['characters'])
 
-    # 🔥 FILTER LOGIC
-    # fav_name mode → show all chars with same NAME (Option B)
+    # ─── FILTER LOGIC ────────────────────────────────────────────
+    # fav_name mode → show all chars with same NAME (ignoring (emoji))
     # fav_id mode → fallback: show only exact ID (old records)
     if mode == 'fav_name' and fav_id_filter:
-    import re as _re
-
-    def _clean_name(s):
-        # Remove anything inside ( ) or [ ] or { } at the end
-        s = str(s).strip()
-        s = _re.sub(r'\s*[\(\[\{][^)\]\}]*[\)\]\}]\s*$', '', s)
-        # Normalize whitespace + lowercase
-        s = _re.sub(r'\s+', ' ', s).strip().lower()
-        return s
-
-    target = _clean_name(fav_id_filter)
-    characters = [c for c in characters if _clean_name(c.get('name', '')) == target]
+        target = _clean_name(fav_id_filter)
+        characters = [
+            c for c in characters
+            if _clean_name(c.get('name', '')) == target
+        ]
     elif mode == 'fav_id' and fav_id_filter:
         # Old fallback — exact ID match with zero-padding
         candidates = [
