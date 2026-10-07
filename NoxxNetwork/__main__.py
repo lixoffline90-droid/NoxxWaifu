@@ -226,7 +226,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
     await context.bot.send_photo(
         chat_id=chat_id,
         photo=character['img_url'],
-        caption=f"{symbol} Gʀᴇᴀᴛ! ᴀ ɴᴇᴡ ᴡᴀɪғᴜ ʜᴀs ᴊᴜsᴛ ᴀᴘᴘᴇᴀʀᴇᴅ\n\nᴜsᴇ /Guess ɴᴀᴍᴇ",
+        caption=f"{symbol} Gʀᴇᴀᴛ! ᴀ ɴᴇᴡ ᴡᴀɪғᴜ ʜᴀs ᴊᴜsᴛ ᴀᴘᴘᴇᴀʀᴇᴅ\nᴜsᴇ /Guess ɴᴀᴍᴇ",
         parse_mode='HTML',
     )
 
@@ -234,7 +234,7 @@ async def send_image(update: Update, context: CallbackContext) -> None:
 async def send_expiry_notice(update: Update, context: CallbackContext, character: dict) -> None:
     keyboard = [[InlineKeyboardButton("Iɴғᴏ", callback_data=f"charinfo:{character.get('id')}")]]
     name = escape(str(character.get('name', 'Unknown')))
-    text = f"❄️ <b>Cʜᴀʀᴀᴄᴛᴇʀ Hᴀs Dɪsᴀᴘᴘᴇᴀʀᴇᴅ:</b>\n{name}\n\n<b>Gᴇᴛ Iɴғᴏ:</b>"
+    text = f"❄️ <b>Character has Disappeared:</b>\n{name}\n\n<b>Gᴇᴛ Iɴғᴏ:</b>"
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=text,
