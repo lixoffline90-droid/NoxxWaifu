@@ -5,6 +5,7 @@ requests
 python-telegram-bot==20.6
 pymongo
 pyrogram
+kurigram
 tgcrypto
 python-dotenv
 cachetools
