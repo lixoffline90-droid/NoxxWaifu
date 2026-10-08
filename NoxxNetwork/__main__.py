@@ -153,8 +153,6 @@ async def choose_character_by_rarity(all_characters, chat_id):
         if cfg['frequency'] > 0:
             last = chat_rarity_tracker.get(rid, -1)
             if last < 0:
-                # never spawned → allow immediately? or require freq?
-                # Allow first spawn if this chat has enough total messages.
                 if total < cfg['frequency']:
                     continue
             else:
@@ -450,13 +448,48 @@ async def _ensure_indexes() -> None:
 
 
 async def runner() -> None:
+    """Start PTB + Waifuu (Pyrogram) on the SAME event loop."""
     register_handlers()
     await _ensure_indexes()
+
+    # ── Start Waifuu (Pyrogram) for rich UI ─────────────────────
+    try:
+        from NoxxNetwork import Waifuu
+    except Exception:
+        Waifuu = None
+
+    if Waifuu is not None:
+        try:
+            await Waifuu.start()
+            me = await Waifuu.get_me()
+            LOGGER.info(f"Waifuu (Pyrogram) started ✅ — @{me.username}")
+        except Exception as e:
+            LOGGER.error(f"Waifuu (Pyrogram) failed to start: {e}")
+    else:
+        LOGGER.warning("Waifuu (Pyrogram) client not available")
+
+    # ── Start PTB ───────────────────────────────────────────────
     await application.initialize()
     await application.start()
     await application.updater.start_polling(drop_pending_updates=True)
     LOGGER.info("Bot started")
-    await asyncio.Event().wait()
+
+    # ── Block forever ───────────────────────────────────────────
+    try:
+        await asyncio.Event().wait()
+    finally:
+        # Cleanup on shutdown
+        try:
+            await application.updater.stop()
+            await application.stop()
+            await application.shutdown()
+        except Exception:
+            pass
+        if Waifuu is not None:
+            try:
+                await Waifuu.stop()
+            except Exception:
+                pass
 
 
 def main() -> None:
