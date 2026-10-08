@@ -1,10 +1,10 @@
 import logging
-import os
+import sys
+import time
 
-from pyrogram import Client
-from telegram.ext import Application
-from motor.motor_asyncio import AsyncIOMotorClient
+StartTime = time.time()
 
+# enable logging
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()],
@@ -12,103 +12,60 @@ logging.basicConfig(
 )
 
 logging.getLogger("apscheduler").setLevel(logging.ERROR)
-logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("pyrate_limiter").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
-from NoxxNetwork.config import Development as Config
-
-
-# ────────────────────────────────────────────────────────────
-# Config
-# ────────────────────────────────────────────────────────────
-api_id = Config.api_id
-api_hash = Config.api_hash
-TOKEN = Config.TOKEN
-GROUP_ID = Config.GROUP_ID
-CHARA_CHANNEL_ID = Config.CHARA_CHANNEL_ID
-mongo_url = Config.mongo_url
-PHOTO_URL = Config.PHOTO_URL
-SUPPORT_CHAT = Config.SUPPORT_CHAT
-UPDATE_CHAT = Config.UPDATE_CHAT
-BOT_USERNAME = Config.BOT_USERNAME
-sudo_users = Config.sudo_users
-OWNER_ID = Config.OWNER_ID
-
-# Main group ID (used by /ball, /spawn)
-MAIN_CHAT_ID = int(os.getenv("MAIN_CHAT_ID", "-1004450386900"))
-
-# Private support/harem group (force-join)
-PRIVATE_GROUP_ID = int(os.getenv("PRIVATE_GROUP_ID", "-1004450386900"))
-HAREM_SUPPORT_CHAT = os.getenv("HAREM_SUPPORT_CHAT", "https://t.me/+A3bmzLTMu5sxMWVh")
-
-
-# ────────────────────────────────────────────────────────────
-# PTB Application
-# ────────────────────────────────────────────────────────────
-application = Application.builder().token(TOKEN).build()
-
-
-# ────────────────────────────────────────────────────────────
-# Pyrogram client — used ONLY for rich UI rendering (marketplace)
-# ⚠️ Set RICH_TOKEN in env with a DIFFERENT bot token to avoid
-#    getUpdates clash with PTB. If not set, falls back to TOKEN
-#    (rich UI may still work since it doesn't use getUpdates when
-#    Pyrogram is started with `no_updates=True`).
-# ────────────────────────────────────────────────────────────
-RICH_TOKEN = os.getenv("RICH_TOKEN") or TOKEN
-
-try:
-    Waifuu = Client(
-        "NoxxNetwork",
-        api_id=api_id,
-        api_hash=api_hash,
-        bot_token=RICH_TOKEN,
-        no_updates=True,   # don't poll — PTB already handles updates
+# Python version check
+if sys.version_info[0] < 3 or sys.version_info[1] < 8:
+    LOGGER.error(
+        "You MUST have a Python version of at least 3.8! "
+        "Multiple features depend on this. Bot quitting."
     )
-except Exception as _e:
-    LOGGER.warning(f"[__init__] Waifuu client init failed: {_e}")
-    Waifuu = None
+    sys.exit(1)
 
 
-# ────────────────────────────────────────────────────────────
-# MongoDB
-# ────────────────────────────────────────────────────────────
-lol = AsyncIOMotorClient(mongo_url)
-db = lol['Character_catcher']
-
-# Main collections
-collection = db['anime_characters_lol']
-user_totals_collection = db['user_totals_lmaoooo']
-user_collection = db["user_collection_lmaoooo"]
-group_user_totals_collection = db['group_user_totalsssssss']
-top_global_groups_collection = db['top_global_groups']
-pm_users = db['total_pm_users']
-
-# Feature collections (auto-created on first use)
-user_coins = db['user_coins']
-harem_modes = db['harem_modes']
-harem_styles = db['harem_styles']
-join_requests = db['join_requests']
-banned_users = db['banned_users']
-banned_groups = db['banned_groups']
-redeem_codes = db['redeem_codes']
-rarity_spawn_config = db['rarity_spawn_config']
-rarity_settings = db['rarity_settings']
-
-# Marketplace collections
-marketplace_listings = db['marketplace_listings']
-marketplace_transactions = db['marketplace_transactions']
-marketplace_locks = db['marketplace_locks']
-marketplace_stats = db['marketplace_stats']
+LOAD = []
+NO_LOAD = []
 
 
-# ────────────────────────────────────────────────────────────
-# Startup log
-# ────────────────────────────────────────────────────────────
-LOGGER.info("NoxxNetwork __init__ loaded")
-LOGGER.info(f"  MAIN_CHAT_ID: {MAIN_CHAT_ID}")
-LOGGER.info(f"  PRIVATE_GROUP_ID: {PRIVATE_GROUP_ID}")
-LOGGER.info(f"  Waifuu (Pyrogram): {'OK' if Waifuu else 'DISABLED'}")
-LOGGER.info(f"  RICH_TOKEN: {'custom' if os.getenv('RICH_TOKEN') else 'using main TOKEN'}")
+def __list_all_modules():
+    import glob
+    from os.path import basename, dirname, isfile
+
+    # Generate the list of modules in this folder for __main__ to load.
+    mod_paths = glob.glob(dirname(__file__) + "/*.py")
+    all_modules = [
+        basename(f)[:-3]
+        for f in mod_paths
+        if isfile(f) and f.endswith(".py") and not f.endswith("__init__.py")
+    ]
+
+    if LOAD or NO_LOAD:
+        to_load = LOAD
+        if to_load:
+            if not all(
+                any(mod == module_name for module_name in all_modules)
+                for mod in to_load
+            ):
+                LOGGER.error("Invalid loadorder names, Quitting...")
+                sys.exit(1)
+
+            all_modules = sorted(set(all_modules) - set(to_load))
+            to_load = list(all_modules) + to_load
+        else:
+            to_load = all_modules
+
+        if NO_LOAD:
+            LOGGER.info("Not loading: {}".format(NO_LOAD))
+            return [item for item in to_load if item not in NO_LOAD]
+
+        return to_load
+
+    return all_modules
+
+
+ALL_MODULES = __list_all_modules()
+LOGGER.info("Modules to load: %s", str(ALL_MODULES))
+__all__ = ALL_MODULES + ["ALL_MODULES"]
