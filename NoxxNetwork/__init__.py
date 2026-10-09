@@ -51,11 +51,9 @@ application = Application.builder().token(TOKEN).build()
 
 
 # ────────────────────────────────────────────────────────────
-# Pyrogram client — used ONLY for rich UI rendering (marketplace)
-# ⚠️ Set RICH_TOKEN in env with a DIFFERENT bot token to avoid
-#    getUpdates clash with PTB. If not set, falls back to TOKEN
-#    (rich UI may still work since it doesn't use getUpdates when
-#    Pyrogram is started with `no_updates=True`).
+# Pyrogram client — rich UI only
+#  • in_memory=True → no session file, always fresh auth
+#  • no_updates=True → no dispatcher / no getUpdates
 # ────────────────────────────────────────────────────────────
 RICH_TOKEN = os.getenv("RICH_TOKEN") or TOKEN
 
@@ -65,7 +63,8 @@ try:
         api_id=api_id,
         api_hash=api_hash,
         bot_token=RICH_TOKEN,
-        no_updates=True,   # don't poll — PTB already handles updates
+        no_updates=True,
+        in_memory=True,
     )
 except Exception as _e:
     LOGGER.warning(f"[__init__] Waifuu client init failed: {_e}")
