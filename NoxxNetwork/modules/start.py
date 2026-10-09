@@ -1,5 +1,5 @@
 """
-Start & Help — Rich UI with category-based help
+Start & Help — Rich UI with fixed banner
 """
 import random
 import html as _html
@@ -18,6 +18,12 @@ from NoxxNetwork import (
     LOGGER,
 )
 from NoxxNetwork import pm_users as collection
+
+
+# ══════════════════════════════════════════════════════════════
+# FIXED BANNER (hardcoded — guaranteed to work)
+# ══════════════════════════════════════════════════════════════
+BANNER_URL = "https://i.ibb.co/tFnrhjh/843803f5a80f.jpg"
 
 
 # ══════════════════════════════════════════════════════════════
@@ -143,14 +149,13 @@ async def _send_rich(update_or_query, html_text: str, *, kb=None, edit: bool = F
 
     plain = _rich_to_clean(html_text)
     try:
-        photo_url = random.choice(PHOTO_URL)
         if len(plain) <= 1024:
             await update.message.reply_photo(
-                photo=photo_url, caption=plain, reply_markup=kb, parse_mode='HTML',
+                photo=BANNER_URL, caption=plain, reply_markup=kb, parse_mode='HTML',
             )
         else:
             try:
-                await update.message.reply_photo(photo=photo_url)
+                await update.message.reply_photo(photo=BANNER_URL)
             except Exception:
                 pass
             await update.message.reply_text(plain, reply_markup=kb, parse_mode='HTML')
@@ -162,7 +167,7 @@ async def _send_rich(update_or_query, html_text: str, *, kb=None, edit: bool = F
 
 
 # ══════════════════════════════════════════════════════════════
-# CATEGORY DATA (no admin section)
+# CATEGORY DATA
 # ══════════════════════════════════════════════════════════════
 CATEGORIES = {
     "catch": {
@@ -241,10 +246,8 @@ CATEGORIES = {
 # BUILDERS
 # ══════════════════════════════════════════════════════════════
 def _banner_url() -> str:
-    try:
-        return random.choice(PHOTO_URL)
-    except Exception:
-        return ""
+    """Return the fixed banner URL (guaranteed to work)."""
+    return BANNER_URL
 
 
 def _mk_table(rows, headers=None):
@@ -263,7 +266,6 @@ def _mk_table(rows, headers=None):
 
 
 def build_start_html(first_name: str) -> str:
-    """Simplified start — no <details> (they were causing fallback issues)."""
     banner = _banner_url()
     name = _esc(first_name or 'User')
 
@@ -278,7 +280,6 @@ def build_start_html(first_name: str) -> str:
         "</blockquote>"
     )
 
-    # Key features table (no details wrapper)
     features = [
         ["🎴 Catch",       "Spawn & grab waifus in groups"],
         ["🏪 Marketplace", "Buy & sell characters for Edollers"],
@@ -302,7 +303,6 @@ def build_start_html(first_name: str) -> str:
 
 
 def build_help_menu_html(first_name: str) -> str:
-    """Help home page — pick a category."""
     banner = _banner_url()
     name = _esc(first_name or 'User')
 
@@ -326,7 +326,6 @@ def build_help_menu_html(first_name: str) -> str:
 
 
 def build_category_html(cat_key: str, first_name: str) -> str:
-    """Category page — commands table."""
     cat = CATEGORIES.get(cat_key)
     if not cat:
         return build_help_menu_html(first_name)
@@ -362,7 +361,6 @@ def _start_kb() -> InlineKeyboardMarkup:
 
 
 def _help_menu_kb() -> InlineKeyboardMarkup:
-    """Help menu — 3x3 grid of category buttons (no admin)."""
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("🌸 CATCH", callback_data="help:cat:catch"),
