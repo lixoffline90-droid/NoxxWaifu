@@ -8,8 +8,14 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler
 
 from NoxxNetwork import (
-    application, PHOTO_URL, SUPPORT_CHAT, UPDATE_CHAT, BOT_USERNAME,
-    GROUP_ID, db, LOGGER,
+    application,
+    PHOTO_URL,
+    SUPPORT_CHAT,
+    UPDATE_CHAT,
+    BOT_USERNAME,
+    GROUP_ID,
+    db,
+    LOGGER,
 )
 from NoxxNetwork import pm_users as collection
 
@@ -68,8 +74,8 @@ def _rich_to_clean(html_text: str) -> str:
 
     # Remove <img>
     t = re.sub(r'<img\b[^>]*/?>', '', t, flags=re.I)
-    # Collapse <details> to inline content (show summary + body)
-    t = re.sub(r'<details[^>]*>', '', t, flags=re.I)
+    # Collapse <details> to inline content
+    t = re.sub(r'<details[^>]*>', '\n', t, flags=re.I)
     t = re.sub(r'</details>', '', t, flags=re.I)
     t = re.sub(r'<summary[^>]*>(.*?)</summary>', r'\n<b>\1</b>\n', t, flags=re.I | re.S)
     # Headings → bold
@@ -78,15 +84,27 @@ def _rich_to_clean(html_text: str) -> str:
     t = re.sub(r'<tg-button[^>]*>(.*?)</tg-button>', r'\1', t, flags=re.I | re.S)
     # blockquote → plain
     t = re.sub(r'<blockquote[^>]*>(.*?)</blockquote>', r'\n\1\n', t, flags=re.I | re.S)
-    # Tables → ASCII (very rough fallback)
+
+    # Tables → clean bullet list (not ugly pipes)
     def _table_sub(m):
         inner = m.group(1)
         rows_html = re.findall(r'<tr[^>]*>(.*?)</tr>', inner, re.I | re.S)
         lines = []
         for r in rows_html:
             cells = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', r, re.I | re.S)
-            lines.append(" • ".join(_strip_html(c) for c in cells))
+            # Skip header row
+            if cells and all(_strip_html(c).lower().strip() in
+                             ('feature', 'command', 'what it does', 'details')
+                             for c in cells):
+                continue
+            if len(cells) == 2:
+                k = cells[0].strip()
+                v = cells[1].strip()
+                lines.append(f"  {k}  →  {v}")
+            else:
+                lines.append("  " + "  •  ".join(_strip_html(c) for c in cells))
         return "\n" + "\n".join(lines) + "\n"
+
     t = re.sub(r'<table[^>]*>(.*?)</table>', _table_sub, t, flags=re.I | re.S)
     t = re.sub(r'</?(?:table|thead|tbody|tr|th|td)[^>]*>', '', t, flags=re.I)
     t = re.sub(r'<br\s*/?>', '\n', t, flags=re.I)
@@ -100,7 +118,7 @@ def _rich_to_clean(html_text: str) -> str:
 # ══════════════════════════════════════════════════════════════
 async def _send_rich(update_or_query, html_text: str, *, kb=None, edit: bool = False):
     """Send rich message. Falls back to PTB if rich fails."""
-    # Edit mode
+    # ── Edit mode ──
     if edit and hasattr(update_or_query, 'message'):
         q = update_or_query
         chat_id = q.message.chat.id
@@ -117,7 +135,7 @@ async def _send_rich(update_or_query, html_text: str, *, kb=None, edit: bool = F
             except Exception as e:
                 LOGGER.warning(f"[start] rich edit failed: {e}")
 
-        # PTB fallback (edit caption)
+        # PTB fallback
         plain = _rich_to_clean(html_text)
         try:
             if q.message.photo:
@@ -131,7 +149,7 @@ async def _send_rich(update_or_query, html_text: str, *, kb=None, edit: bool = F
             LOGGER.warning(f"[start] edit fallback failed: {e}")
         return
 
-    # Send mode
+    # ── Send mode ──
     update = update_or_query
     chat_id = update.effective_chat.id
 
@@ -147,12 +165,20 @@ async def _send_rich(update_or_query, html_text: str, *, kb=None, edit: bool = F
     plain = _rich_to_clean(html_text)
     try:
         photo_url = random.choice(PHOTO_URL)
-        await update.message.reply_photo(
-            photo=photo_url,
-            caption=plain[:1024],
-            reply_markup=kb,
-            parse_mode='HTML',
-        )
+        if len(plain) <= 1024:
+            await update.message.reply_photo(
+                photo=photo_url,
+                caption=plain,
+                reply_markup=kb,
+                parse_mode='HTML',
+            )
+        else:
+            # Too long for caption → send photo then text
+            try:
+                await update.message.reply_photo(photo=photo_url)
+            except Exception:
+                pass
+            await update.message.reply_text(plain, reply_markup=kb, parse_mode='HTML')
     except Exception:
         try:
             await update.message.reply_text(plain, reply_markup=kb, parse_mode='HTML')
@@ -176,13 +202,20 @@ def build_start_html(first_name: str) -> str:
 
     # Key features table
     features = [
-        ["🎴 Catch", "Spawn & grab waifus in groups"],
-        ["🏪 Marketplace", "Buy & sell characters for Edollers"],
-        ["🎁 Trade", "Trade / gift waifus with friends"],
-        ["🎳 /ball", "Earn Edollers daily"],
-        ["🎨 Harem Mode", "Filter & customize your harem"],
+        ["🎴 Catch",       "Spawn & grab waifus in groups"],
+        ["🏪 Marketplace",  "Buy & sell characters for Edollers"],
+        ["🎁 Trade",        "Trade / gift waifus with friends"],
+        ["🎳 /ball",        "Earn Edollers daily"],
+        ["🎨 Harem Mode",   "Filter & customize your harem"],
     ]
-    table = _rich_table(["Feature", "Details"], features, border=1) if RICH_UI_OK and _rich_table else ""
+
+    if RICH_UI_OK and _rich_table:
+        try:
+            table = _rich_table(["Feature", "Details"], features, border=1)
+        except Exception:
+            table = ""
+    else:
+        table = ""
 
     why_choose = (
         "⭐ Simple slash commands, no setup needed.\n"
@@ -191,26 +224,45 @@ def build_start_html(first_name: str) -> str:
         "🌐 Click <b>HELP</b> below for all commands."
     )
 
-    html_text = (
-        (f'<img src="{banner}" />' if banner else '')
-        + f"<h2>HEY {name}, WELCOME ABOARD! 🎵</h2>"
-        + "<blockquote>"
-        + "I AM <b>WAIFU CATCHER</b> — A POWERFUL TELEGRAM BOT "
-        + "THAT BRINGS ANIME WAIFUS TO YOUR GROUP. 🎴"
-        + "</blockquote>"
-        + (
-            f"<details open><summary>✨ KEY FEATURES ✨</summary>{table}</details>"
-            if (_rich_details and table) else
-            f"<b>✨ KEY FEATURES ✨</b>\n{table}"
-        )
-        + (
-            f"<details><summary>⚡ WHY CHOOSE IT? ⚡</summary>{why_choose}</details>"
-            if _rich_details else
-            f"\n<b>⚡ WHY CHOOSE IT? ⚡</b>\n{why_choose}"
-        )
-        + f"<blockquote>POWERED BY » <b>WAIFU CATCHER</b></blockquote>"
+    # Compose body
+    body = ""
+    if banner:
+        body += f'<img src="{_esc(banner)}" />'
+    body += f"<h2>HEY {name}, WELCOME ABOARD! 🎵</h2>"
+    body += (
+        "<blockquote>"
+        "I AM <b>WAIFU CATCHER</b> — A POWERFUL TELEGRAM BOT "
+        "THAT BRINGS ANIME WAIFUS TO YOUR GROUP. 🎴"
+        "</blockquote>"
     )
-    return html_text
+
+    if _rich_details and table:
+        body += f"<details open><summary>✨ KEY FEATURES ✨</summary>{table}</details>"
+    else:
+        body += f"\n<b>✨ KEY FEATURES ✨</b>\n{table}"
+
+    if _rich_details:
+        body += f"<details><summary>⚡ WHY CHOOSE IT? ⚡</summary>{why_choose}</details>"
+    else:
+        body += f"\n<b>⚡ WHY CHOOSE IT? ⚡</b>\n{why_choose}"
+
+    body += f"<blockquote>POWERED BY » <b>WAIFU CATCHER</b></blockquote>"
+    return body
+
+
+def _mk_table(rows):
+    if RICH_UI_OK and _rich_table:
+        try:
+            return _rich_table(["Command", "What it does"], rows, border=1)
+        except Exception:
+            pass
+    # fallback HTML table
+    parts = ['<table border="1">']
+    parts.append("<tr><th>Command</th><th>What it does</th></tr>")
+    for r in rows:
+        parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>")
+    parts.append("</table>")
+    return "".join(parts)
 
 
 def build_help_html(first_name: str) -> str:
@@ -226,7 +278,7 @@ def build_help_html(first_name: str) -> str:
         ["/w &lt;id&gt;", "Look up a character"],
         ["/find &lt;id&gt;", "See who owns a character"],
     ]
-    catch_tbl = _rich_table(["Command", "What it does"], catch_rows, border=1) if RICH_UI_OK and _rich_table else ""
+    catch_tbl = _mk_table(catch_rows)
 
     # ─── Marketplace ────────────────────────────────────────────
     market_rows = [
@@ -236,14 +288,14 @@ def build_help_html(first_name: str) -> str:
         ["/cancelsell &lt;listing_id&gt;", "Cancel your listing"],
         ["/mylistings", "See your active listings"],
     ]
-    market_tbl = _rich_table(["Command", "What it does"], market_rows, border=1) if RICH_UI_OK and _rich_table else ""
+    market_tbl = _mk_table(market_rows)
 
     # ─── Trade & Gift ───────────────────────────────────────────
     trade_rows = [
         ["/trade &lt;yours&gt; &lt;theirs&gt;", "Trade waifus (reply to user)"],
         ["/gift &lt;id&gt;", "Gift a waifu (reply to user)"],
     ]
-    trade_tbl = _rich_table(["Command", "What it does"], trade_rows, border=1) if RICH_UI_OK and _rich_table else ""
+    trade_tbl = _mk_table(trade_rows)
 
     # ─── Economy ────────────────────────────────────────────────
     econ_rows = [
@@ -253,7 +305,7 @@ def build_help_html(first_name: str) -> str:
         ["/wtop", "Top Edollers holders"],
         ["/wrarity", "Collection breakdown by rarity"],
     ]
-    econ_tbl = _rich_table(["Command", "What it does"], econ_rows, border=1) if RICH_UI_OK and _rich_table else ""
+    econ_tbl = _mk_table(econ_rows)
 
     # ─── Customization ──────────────────────────────────────────
     cust_rows = [
@@ -261,36 +313,36 @@ def build_help_html(first_name: str) -> str:
         ["/whfav &lt;id&gt;", "Show only one character in harem"],
         ["/whstyle", "Change harem display style"],
     ]
-    cust_tbl = _rich_table(["Command", "What it does"], cust_rows, border=1) if RICH_UI_OK and _rich_table else ""
+    cust_tbl = _mk_table(cust_rows)
 
-    # ─── Leaderboards & Stats ───────────────────────────────────
+    # ─── Leaderboards ───────────────────────────────────────────
     stats_rows = [
         ["/top", "Top waifu collectors"],
         ["/ctop", "Chat leaderboard"],
         ["/topgroups", "Top groups"],
         ["/stats", "Bot statistics"],
     ]
-    stats_tbl = _rich_table(["Command", "What it does"], stats_rows, border=1) if RICH_UI_OK and _rich_table else ""
+    stats_tbl = _mk_table(stats_rows)
 
     # ─── Group Tools ────────────────────────────────────────────
     group_rows = [
         ["/changetime &lt;num&gt;", "Set spawn frequency (admin)"],
         ["/spawn &lt;id&gt; &lt;freq&gt; &lt;scope&gt;", "Control rarity spawn (sudo)"],
     ]
-    group_tbl = _rich_table(["Command", "What it does"], group_rows, border=1) if RICH_UI_OK and _rich_table else ""
+    group_tbl = _mk_table(group_rows)
 
     # ─── Redeem ─────────────────────────────────────────────────
     redeem_rows = [
         ["/redeem &lt;code&gt;", "Redeem a code to get a character"],
     ]
-    redeem_tbl = _rich_table(["Command", "What it does"], redeem_rows, border=1) if RICH_UI_OK and _rich_table else ""
+    redeem_tbl = _mk_table(redeem_rows)
 
     def _section(title: str, table: str, open: bool = False) -> str:
-        if _rich_details and RICH_UI_OK:
+        if _rich_details:
             return f"<details{' open' if open else ''}><summary>{title}</summary>{table}</details>"
         return f"\n<b>{title}</b>\n{table}"
 
-    html_text = (
+    body = (
         f"<h2>🎐 WAIFU CATCHER — HELP CENTER ♡</h2>"
         f"<blockquote>Hey {name}, here are all commands you can use.</blockquote>"
         + _section("🌸 CATCH & COLLECT", catch_tbl, open=True)
@@ -303,7 +355,7 @@ def build_help_html(first_name: str) -> str:
         + _section("🎁 REDEEM", redeem_tbl)
         + f"<blockquote>✨ Click <b>ADD ME</b> below and let the catching begin!</blockquote>"
     )
-    return html_text
+    return body
 
 
 # ══════════════════════════════════════════════════════════════
@@ -365,7 +417,7 @@ async def start(update: Update, context: CallbackContext) -> None:
     except Exception as e:
         LOGGER.warning(f"[start] user tracking failed: {e}")
 
-    # Private chat → full rich start
+    # Private chat → rich start
     if update.effective_chat.type == "private":
         html_text = build_start_html(first_name)
         await _send_rich(update, html_text, kb=_start_kb())
