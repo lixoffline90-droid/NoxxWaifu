@@ -1,15 +1,15 @@
 """
-Waifu Marketplace — Secure Rich UI (Kurigram)
+Waifu Marketplace — Secure Rich UI
 Commands:
-    /market               - browse listings (paginated, 10/page)
-    /marketplace          - alias
+    /market [search]        - browse/search listings (10/page)
+    /marketplace [search]   - alias
     /sellwaifu <id> <price>
     /wbuy <listing_id>
-    /buywaifu <listing_id> - alias
+    /buywaifu <listing_id>  - alias
     /cancelsell <listing_id>
-    /unsell <listing_id>   - alias
+    /unsell <listing_id>    - alias
     /mylistings
-    /marketstats          (sudo/owner only)
+    /marketstats            (sudo/owner only)
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ import time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackContext, CallbackQueryHandler
-from telegram.error import BadRequest
+from telegram.error import BadRequest, Forbidden
 
 from NoxxNetwork import (
     application, db, user_collection, collection,
@@ -41,12 +41,12 @@ LISTING_ID_LEN = 7
 LISTING_PREFIX = "MKT"
 MIN_PRICE = 1
 MAX_PRICE = 10_000_000
-PENDING_TTL = 300             # 5 minutes to confirm
-PROCESSING_TIMEOUT = 300      # 5 minutes before recovery considers a txn stuck
+PENDING_TTL = 300
+PROCESSING_TIMEOUT = 300
 
 
 # ══════════════════════════════════════════════════════════════
-# COINS MODULE
+# COINS
 # ══════════════════════════════════════════════════════════════
 try:
     from NoxxNetwork.modules.coin import coins_collection
@@ -61,120 +61,12 @@ async def get_balance(user_id: int) -> int:
 
 
 # ══════════════════════════════════════════════════════════════
-# FALLBACK HELPERS (HTML-safe)
+# HELPERS
 # ══════════════════════════════════════════════════════════════
 def _esc(v) -> str:
-    """Escape untrusted text for HTML output."""
     if v is None:
         return ""
     return _html.escape(str(v), quote=False)
-
-
-def _fb_heading(text: str, level: int = 2) -> str:
-    return f"<b>{text}</b>\n"
-
-
-def _fb_note(text: str, expandable: bool = False) -> str:
-    return f"<blockquote>{text}</blockquote>"
-
-
-def _fb_code(value) -> str:
-    return f"<code>{_esc(value)}</code>"
-
-
-# ══════════════════════════════════════════════════════════════
-# RICH UI IMPORT
-# ══════════════════════════════════════════════════════════════
-RICH_UI_OK = False
-_rich_send = _rich_edit = None
-_rich_esc = _rich_heading = _rich_table = _rich_note = _rich_code = None
-
-try:
-    from NoxxNetwork.rich_ui_decoded import (
-        rich_send as _rich_send,
-        rich_edit as _rich_edit,
-        rich_esc as _rich_esc,
-        rich_heading as _rich_heading,
-        rich_table as _rich_table,
-        rich_note as _rich_note,
-        rich_code as _rich_code,
-    )
-    RICH_UI_OK = True
-    LOGGER.info("[marketplace] rich_ui loaded ✅")
-except Exception as _e:
-    LOGGER.warning(f"[marketplace] rich_ui unavailable, using fallbacks: {_e}")
-
-
-# ─── Safe wrappers ────────────────────────────────────────────
-def rich_esc(v):
-    if _rich_esc:
-        try:
-            return _rich_esc(v)
-        except Exception:
-            pass
-    return _esc(v)
-
-
-def rich_heading(text, level=2):
-    if _rich_heading:
-        try:
-            return _rich_heading(text, level)
-        except Exception:
-            pass
-    return _fb_heading(text, level)
-
-
-def rich_note(text, expandable=False):
-    if _rich_note:
-        try:
-            return _rich_note(text, expandable)
-        except Exception:
-            pass
-    return _fb_note(text, expandable)
-
-
-def rich_code(v):
-    if _rich_code:
-        try:
-            return _rich_code(v)
-        except Exception:
-            pass
-    return _fb_code(v)
-
-
-def rich_table(headers, rows, border=1):
-    if RICH_UI_OK and _rich_table:
-        try:
-            return _rich_table(headers, rows, border=border)
-        except Exception as e:
-            LOGGER.warning(f"[marketplace] rich_table failed: {e}")
-    return _build_ascii_table(headers, rows)
-
-
-# ─── Pyrogram client ──────────────────────────────────────────
-try:
-    from NoxxNetwork import Waifuu as _Waifuu
-except Exception:
-    _Waifuu = None
-
-PYRO_OK = _Waifuu is not None
-
-
-# ══════════════════════════════════════════════════════════════
-# COLLECTIONS
-# ══════════════════════════════════════════════════════════════
-marketplace_col = db['marketplace_listings']
-market_txn_col = db['marketplace_transactions']
-market_stats_col = db['marketplace_stats']
-market_locks_col = db['marketplace_locks']
-market_pending_col = db['marketplace_pending']
-
-
-# ══════════════════════════════════════════════════════════════
-# HELPERS
-# ══════════════════════════════════════════════════════════════
-def _is_sudo(uid: int) -> bool:
-    return str(uid) in (sudo_users or []) or uid == OWNER_ID
 
 
 def _fmt(n) -> str:
@@ -224,36 +116,73 @@ def _valid_price(p) -> bool:
     return MIN_PRICE <= p <= MAX_PRICE
 
 
+def _is_sudo(uid: int) -> bool:
+    return str(uid) in (sudo_users or []) or uid == OWNER_ID
+
+
+# ══════════════════════════════════════════════════════════════
+# RICH UI (optional)
+# ══════════════════════════════════════════════════════════════
+RICH_UI_OK = False
+_rich_send = None
+_rich_edit = None
+
+try:
+    from NoxxNetwork.rich_ui_decoded import (
+        rich_send as _rich_send,
+        rich_edit as _rich_edit,
+    )
+    RICH_UI_OK = True
+    LOGGER.info("[marketplace] rich_ui loaded ✅")
+except Exception as _e:
+    LOGGER.warning(f"[marketplace] rich_ui unavailable: {_e}")
+
+try:
+    from NoxxNetwork import Waifuu as _Waifuu
+except Exception:
+    _Waifuu = None
+
+PYRO_OK = _Waifuu is not None
+
+
+# ══════════════════════════════════════════════════════════════
+# COLLECTIONS
+# ══════════════════════════════════════════════════════════════
+marketplace_col = db['marketplace_listings']
+market_txn_col = db['marketplace_transactions']
+market_stats_col = db['marketplace_stats']
+market_locks_col = db['marketplace_locks']
+market_pending_col = db['marketplace_pending']
+
+
 # ══════════════════════════════════════════════════════════════
 # INDEXES
 # ══════════════════════════════════════════════════════════════
 async def ensure_indexes():
     try:
-        # Unique per listing_id
         await marketplace_col.create_index('listing_id', unique=True)
-        # Query helpers
         await marketplace_col.create_index('status')
         await marketplace_col.create_index('seller_id')
         await marketplace_col.create_index('waifu_id')
         await marketplace_col.create_index([('status', 1), ('created_at', -1)])
-        # Prevent duplicate active listing for same (seller, waifu)
-        # Partial unique index — only enforced for ACTIVE listings
+        await marketplace_col.create_index([('status', 1), ('waifu_name', 1)])
+
+        # 🔥 GLOBAL UNIQUE: ek waifu_id ki ek hi ACTIVE listing
         try:
             await marketplace_col.create_index(
-                [('seller_id', 1), ('waifu_id', 1)],
+                'waifu_id',
                 unique=True,
                 partialFilterExpression={'status': 'ACTIVE'},
-                name='uniq_active_seller_waifu',
+                name='uniq_active_waifu',
             )
+            LOGGER.info("[marketplace] global unique index created")
         except Exception as e:
-            LOGGER.warning(f"[marketplace] partial unique index: {e}")
-        # Locks
+            LOGGER.warning(f"[marketplace] unique index failed (may have duplicates): {e}")
+
         await market_locks_col.create_index([('seller_id', 1), ('waifu_id', 1)], unique=True)
         await market_locks_col.create_index('listing_id')
-        # Pending confirmations
         await market_pending_col.create_index('token', unique=True)
         await market_pending_col.create_index('expires_at')
-        # Transactions
         await market_txn_col.create_index('transaction_id', unique=True)
         await market_txn_col.create_index('listing_id')
         await market_txn_col.create_index('timestamp')
@@ -263,7 +192,7 @@ async def ensure_indexes():
 
 
 # ══════════════════════════════════════════════════════════════
-# LOCK MANAGEMENT
+# LOCK
 # ══════════════════════════════════════════════════════════════
 async def is_waifu_locked(user_id: int, waifu_id: str) -> bool:
     doc = await market_locks_col.find_one({'seller_id': int(user_id), 'waifu_id': str(waifu_id)})
@@ -273,27 +202,22 @@ async def is_waifu_locked(user_id: int, waifu_id: str) -> bool:
 async def _lock(seller_id: int, waifu_id: str, listing_id: str):
     await market_locks_col.update_one(
         {'seller_id': int(seller_id), 'waifu_id': str(waifu_id)},
-        {'$set': {
-            'listing_id': listing_id,
-            'locked_at': _now(),
-        }},
+        {'$set': {'listing_id': listing_id, 'locked_at': _now()}},
         upsert=True,
     )
 
 
 async def _unlock(seller_id: int, waifu_id: str, listing_id: str | None = None):
-    """Unlock — if listing_id given, only delete if it matches (safety)."""
-    query = {'seller_id': int(seller_id), 'waifu_id': str(waifu_id)}
+    q = {'seller_id': int(seller_id), 'waifu_id': str(waifu_id)}
     if listing_id is not None:
-        query['listing_id'] = listing_id
-    await market_locks_col.delete_one(query)
+        q['listing_id'] = listing_id
+    await market_locks_col.delete_one(q)
 
 
 # ══════════════════════════════════════════════════════════════
-# PENDING CONFIRMATIONS (secure tokens)
+# PENDING (secure tokens)
 # ══════════════════════════════════════════════════════════════
 async def _create_pending(user_id: int, action: str, params: dict, ttl: int = PENDING_TTL) -> str:
-    """Create a pending confirmation. Returns token."""
     token = secrets.token_urlsafe(16)
     await market_pending_col.insert_one({
         'token': token,
@@ -308,12 +232,9 @@ async def _create_pending(user_id: int, action: str, params: dict, ttl: int = PE
 
 
 async def _consume_pending(token: str, user_id: int) -> dict | None:
-    """Atomically consume a pending confirmation.
-    Returns the doc if valid + owned by user, else None.
-    """
     if not token or not isinstance(token, str):
         return None
-    doc = await market_pending_col.find_one_and_update(
+    return await market_pending_col.find_one_and_update(
         {
             'token': token,
             'user_id': int(user_id),
@@ -321,32 +242,16 @@ async def _consume_pending(token: str, user_id: int) -> dict | None:
             'expires_at': {'$gt': _now()},
         },
         {'$set': {'consumed': True, 'consumed_at': _now()}},
-        return_document=True,  # ReturnDocument.AFTER
+        return_document=True,
     )
-    return doc
-
-
-async def _cleanup_expired_pendings():
-    try:
-        await market_pending_col.delete_many({
-            'expires_at': {'$lt': _now() - 3600},
-        })
-    except Exception:
-        pass
 
 
 # ══════════════════════════════════════════════════════════════
-# RECOVERY — stuck PROCESSING listings
+# RECOVERY
 # ══════════════════════════════════════════════════════════════
 async def _recover_stuck_processings():
-    """On startup, reconcile listings stuck in PROCESSING.
-    - If a completed transaction exists for the listing → mark SOLD, unlock
-    - Else → mark FAILED (needs admin). We DO NOT auto-revert to ACTIVE,
-      because we can't prove whether coin/waifu changes were applied.
-    """
     cutoff = _now() - PROCESSING_TIMEOUT
-    fixed = 0
-    failed = 0
+    fixed = failed = 0
     try:
         async for l in marketplace_col.find({
             'status': 'PROCESSING',
@@ -363,7 +268,6 @@ async def _recover_stuck_processings():
                 await _unlock(l['seller_id'], l['waifu_id'], lid)
                 fixed += 1
             else:
-                # Uncertain state → mark FAILED
                 await marketplace_col.update_one(
                     {'listing_id': lid},
                     {'$set': {'status': 'FAILED', 'updated_at': _now()}},
@@ -376,7 +280,7 @@ async def _recover_stuck_processings():
 
 
 # ══════════════════════════════════════════════════════════════
-# PLAIN FALLBACK
+# PLAIN FALLBACK (strip rich-only tags)
 # ══════════════════════════════════════════════════════════════
 def _plain_fallback(html: str) -> str:
     t = _re.sub(r'<img\b[^>]*/?>', '', html, flags=_re.I)
@@ -390,143 +294,44 @@ def _plain_fallback(html: str) -> str:
 
 
 # ══════════════════════════════════════════════════════════════
-# ASCII TABLE (emoji-aware)
-# ══════════════════════════════════════════════════════════════
-def _display_width(s: str) -> int:
-    width = 0
-    for ch in str(s):
-        cp = ord(ch)
-        if (0x1F300 <= cp <= 0x1FAFF or
-                0x2600 <= cp <= 0x27BF or
-                0x1F000 <= cp <= 0x1F2FF or
-                0x2190 <= cp <= 0x21FF):
-            width += 2
-        else:
-            width += 1
-    return width
-
-
-def _build_ascii_table(headers, rows) -> str:
-    """Build ASCII table, HTML-escape content, wrap in <pre>."""
-    headers = [str(h) for h in headers]
-    rows = [[str(c) if c is not None else "" for c in r] for r in rows]
-
-    widths = [_display_width(h) for h in headers]
-    for row in rows:
-        for i, cell in enumerate(row):
-            widths[i] = max(widths[i], _display_width(cell))
-
-    def _pad(cell, w):
-        pad = w - _display_width(cell)
-        return str(cell) + " " * max(0, pad)
-
-    lines = []
-    lines.append("┌" + "┬".join("─" * (w + 2) for w in widths) + "┐")
-    lines.append("│" + "│".join(f" {_pad(h, widths[i])} " for i, h in enumerate(headers)) + "│")
-    lines.append("├" + "┼".join("─" * (w + 2) for w in widths) + "┤")
-    for row in rows:
-        lines.append("│" + "│".join(f" {_pad(row[i], widths[i])} " for i in range(len(widths))) + "│")
-    lines.append("└" + "┴".join("─" * (w + 2) for w in widths) + "┘")
-
-    table = "\n".join(lines)
-    return f"<pre>{_html.escape(table, quote=False)}</pre>"
-
-
-# ══════════════════════════════════════════════════════════════
-# PAGE RENDERER
-# ══════════════════════════════════════════════════════════════
-def build_marketplace_page(listings, page, total_pages, total) -> str:
-    h = [rich_heading("🏪 WAIFU MARKETPLACE", 1)]
-
-    if MARKET_IMG_URL:
-        h.append(f'<img src="{rich_esc(MARKET_IMG_URL)}" />')
-
-    if total == 0:
-        h.append(rich_note("😔 No active listings. Be the first to /sellwaifu!"))
-        return "".join(h)
-
-    h.append(rich_note(
-        f"📊 <b>{total}</b> active listings · Page <b>{page}/{total_pages}</b>"
-    ))
-
-    headers = ["Listing", "Char ID", "Name", "Rarity", "Price"]
-    rows = []
-    for l in listings:
-        nm = str(l.get('waifu_name', 'Unknown'))
-        if len(nm) > 14:
-            nm = nm[:13] + "…"
-        rows.append([
-            str(l.get('listing_id', '?')),
-            str(l.get('waifu_id', '?')),
-            nm,
-            _rar_symbol_only(l.get('waifu_rarity', '')),
-            f"${_fmt(l.get('price', 0))}",
-        ])
-
-    h.append(rich_table(headers, rows, border=1))
-    h.append(rich_note("💡 Use <code>/wbuy &lt;listing_id&gt;</code> to purchase."))
-    return "".join(h)
-
-
-def _market_kb(page, total_pages):
-    if total_pages <= 1:
-        return None
-    row = []
-    if page > 1:
-        row.append(InlineKeyboardButton("◀️", callback_data=f"mkt:page:{page - 1}"))
-    row.append(InlineKeyboardButton(f"Page {page}/{total_pages}", callback_data="mkt:noop"))
-    if page < total_pages:
-        row.append(InlineKeyboardButton("▶️", callback_data=f"mkt:page:{page + 1}"))
-    return InlineKeyboardMarkup([row])
-
-
-# ══════════════════════════════════════════════════════════════
 # SEND / EDIT
 # ══════════════════════════════════════════════════════════════
 async def _send(update, html: str, *, kb=None, with_image: bool = False):
     chat = update.effective_chat
     if not chat:
-        LOGGER.warning("[marketplace] _send: no chat")
         return None
 
-    LOGGER.info(f"[marketplace] _send chat={chat.id} rich_ok={RICH_UI_OK} pyro_ok={PYRO_OK}")
-
-    # 1. Rich send
+    # 1. Rich
     if RICH_UI_OK and PYRO_OK and _rich_send is not None:
         try:
             result = await _rich_send(_Waifuu, chat.id, html, reply_markup=kb)
             if result:
-                LOGGER.info("[marketplace] rich send OK")
                 return result
-            LOGGER.warning("[marketplace] rich send returned None → PTB fallback")
+            LOGGER.warning("[marketplace] rich send returned None")
         except Exception as e:
-            LOGGER.warning(f"[marketplace] rich send exception: {e} → PTB fallback")
+            LOGGER.warning(f"[marketplace] rich send exception: {e}")
 
     # 2. PTB fallback
     plain = _plain_fallback(html)
     try:
-        msg = await update.message.reply_text(
+        return await update.message.reply_text(
             plain, reply_markup=kb, parse_mode='HTML',
         )
-        LOGGER.info("[marketplace] PTB fallback OK")
-        return msg
     except Exception as e:
         LOGGER.error(f"[marketplace] PTB text failed: {e}")
 
-    # 3. Photo fallback
+    # 3. Photo only
     if with_image and MARKET_IMG_URL:
         try:
             await update.message.reply_photo(photo=MARKET_IMG_URL)
-            LOGGER.info("[marketplace] photo fallback OK")
-        except Exception as e:
-            LOGGER.warning(f"[marketplace] photo fallback failed: {e}")
-
+        except Exception:
+            pass
     return None
 
 
 async def _edit(query, html: str, *, kb=None):
-    try:
-        if RICH_UI_OK and PYRO_OK and _rich_edit is not None:
+    if RICH_UI_OK and PYRO_OK and _rich_edit is not None:
+        try:
             result = await _rich_edit(
                 _Waifuu, html,
                 chat_id=query.message.chat.id,
@@ -535,35 +340,112 @@ async def _edit(query, html: str, *, kb=None):
             )
             if result:
                 return result
-    except Exception as e:
-        LOGGER.warning(f"[marketplace] rich edit failed: {e}")
+        except Exception as e:
+            LOGGER.warning(f"[marketplace] rich edit failed: {e}")
 
-    plain = _plain_fallback(html)
     try:
-        await query.edit_message_text(plain, reply_markup=kb, parse_mode='HTML')
+        await query.edit_message_text(
+            _plain_fallback(html), reply_markup=kb, parse_mode='HTML'
+        )
     except BadRequest:
         pass
-    except Exception as e:
-        LOGGER.warning(f"[marketplace] edit fallback failed: {e}")
 
 
 # ══════════════════════════════════════════════════════════════
-# /market
+# SEARCH FILTER
 # ══════════════════════════════════════════════════════════════
-async def _render_market(update, page=1, edit_query=None):
-    total = await marketplace_col.count_documents({'status': 'ACTIVE'})
+def _build_search_filter(search: str) -> dict:
+    """Build MongoDB filter from search string.
+
+    - Empty → all ACTIVE
+    - Starts with MKT → listing_id match (exact/partial)
+    - All digits → waifu_id exact match
+    - Else → waifu_name regex (case-insensitive, partial)
+    """
+    base = {'status': 'ACTIVE'}
+    s = (search or '').strip()
+    if not s:
+        return base
+
+    su = s.upper()
+    if su.startswith(LISTING_PREFIX):
+        # listing_id partial match
+        base['listing_id'] = {'$regex': _re.escape(su), '$options': 'i'}
+    elif s.isdigit():
+        # char/waifu id exact
+        base['waifu_id'] = s
+    else:
+        # name search (case-insensitive, partial)
+        base['waifu_name'] = {'$regex': _re.escape(s), '$options': 'i'}
+    return base
+
+
+# ══════════════════════════════════════════════════════════════
+# RENDER MARKET PAGE
+# ══════════════════════════════════════════════════════════════
+def build_marketplace_page(listings, page, total_pages, total, search: str = '') -> str:
+    h = ["🏪 <b>WAIFU MARKETPLACE</b>"]
+
+    if search:
+        h.append(f"\n🔎 Search: <code>{_esc(search)}</code>")
+
+    if total == 0:
+        if search:
+            h.append(f"\n😔 No listings found for <b>{_esc(search)}</b>.")
+            h.append("\n💡 Try <code>/market</code> to see all listings.")
+        else:
+            h.append("\n😔 No active listings.")
+            h.append("\n💡 Be the first: <code>/sellwaifu &lt;id&gt; &lt;price&gt;</code>")
+        return "\n".join(h)
+
+    h.append(f"\n📊 <b>{total}</b> result(s) · Page <b>{page}/{total_pages}</b>\n")
+
+    for i, l in enumerate(listings, 1):
+        nm = _esc(str(l.get('waifu_name', 'Unknown')))
+        lid = _esc(str(l.get('listing_id', '?')))
+        wid = _esc(str(l.get('waifu_id', '?')))
+        rar = _rar_symbol_only(l.get('waifu_rarity', ''))
+        price = _fmt(l.get('price', 0))
+
+        h.append(
+            f"{i}. {rar} <b>{nm}</b>\n"
+            f"   🆔 <code>{lid}</code> │ Char: <code>{wid}</code>\n"
+            f"   💰 <b>${price}</b>\n"
+        )
+
+    h.append("\n💡 Buy with <code>/wbuy &lt;listing_id&gt;</code>")
+    return "\n".join(h)
+
+
+def _market_kb(page, total_pages, search: str = ''):
+    if total_pages <= 1:
+        return None
+    # Encode search in callback (truncated to safe length)
+    s_enc = (search or '')[:20]
+    row = []
+    if page > 1:
+        row.append(InlineKeyboardButton("◀️", callback_data=f"mkt:page:{page - 1}:{s_enc}"))
+    row.append(InlineKeyboardButton(f"Page {page}/{total_pages}", callback_data="mkt:noop"))
+    if page < total_pages:
+        row.append(InlineKeyboardButton("▶️", callback_data=f"mkt:page:{page + 1}:{s_enc}"))
+    return InlineKeyboardMarkup([row])
+
+
+async def _render_market(update, page=1, search: str = '', edit_query=None):
+    flt = _build_search_filter(search)
+    total = await marketplace_col.count_documents(flt)
     total_pages = max(1, (total + LISTINGS_PER_PAGE - 1) // LISTINGS_PER_PAGE)
     page = max(1, min(page, total_pages))
 
     cursor = (marketplace_col
-              .find({'status': 'ACTIVE'})
+              .find(flt)
               .sort('created_at', -1)
               .skip((page - 1) * LISTINGS_PER_PAGE)
               .limit(LISTINGS_PER_PAGE))
     listings = await cursor.to_list(length=LISTINGS_PER_PAGE)
 
-    html = build_marketplace_page(listings, page, total_pages, total)
-    kb = _market_kb(page, total_pages)
+    html = build_marketplace_page(listings, page, total_pages, total, search)
+    kb = _market_kb(page, total_pages, search)
 
     if edit_query:
         return await _edit(edit_query, html, kb=kb)
@@ -572,19 +454,19 @@ async def _render_market(update, page=1, edit_query=None):
 
 async def market(update: Update, context: CallbackContext):
     try:
-        await _render_market(update, page=1)
+        search = ' '.join(context.args) if context.args else ''
+        await _render_market(update, page=1, search=search)
     except Exception as e:
-        LOGGER.exception(f"[marketplace] market error: {e}")
+        LOGGER.exception(f"[market] error: {e}")
 
 
 # ══════════════════════════════════════════════════════════════
-# /sellwaifu <waifu_id> <price>
+# /sellwaifu
 # ══════════════════════════════════════════════════════════════
 async def sellwaifu(update: Update, context: CallbackContext):
     try:
         user = update.effective_user
         args = context.args or []
-
         LOGGER.info(f"[sellwaifu] user={user.id} args={args}")
 
         if len(args) != 2:
@@ -612,14 +494,18 @@ async def sellwaifu(update: Update, context: CallbackContext):
             None,
         )
         if not matched:
-            await _send(update, f"❌ You don't own waifu <code>{rich_esc(waifu_id)}</code>.")
+            await _send(update, f"❌ You don't own waifu <code>{_esc(waifu_id)}</code>.")
             return
 
-        # Check existing ACTIVE listing
-        if await marketplace_col.find_one(
-            {'seller_id': user.id, 'waifu_id': waifu_id, 'status': 'ACTIVE'}
-        ):
-            await _send(update, "❌ Already listed.")
+        # 🔥 Global uniqueness check
+        existing = await marketplace_col.find_one({'waifu_id': waifu_id, 'status': 'ACTIVE'})
+        if existing:
+            await _send(
+                update,
+                f"❌ This waifu (ID <code>{_esc(waifu_id)}</code>) is already listed by someone "
+                f"as <code>{_esc(existing.get('listing_id'))}</code>.\n\n"
+                f"Only one active listing per character ID is allowed."
+            )
             return
 
         if await is_waifu_locked(user.id, waifu_id):
@@ -631,24 +517,23 @@ async def sellwaifu(update: Update, context: CallbackContext):
         snap = _snap(matched)
         rar = _rar_symbol_only(snap['rarity'])
 
-        # Secure pending token (not raw data)
         token = await _create_pending(
             user.id, 'sell',
-            {'waifu_id': waifu_id, 'price': price, 'waifu_name': snap['name']},
+            {'waifu_id': waifu_id, 'price': price},
         )
 
-        rows = [
-            ["🌸 Name", f"<b>{rich_esc(snap['name'])}</b>"],
-            ["⭐ Rarity", f"{rar} <b>{rich_esc(snap['rarity'])}</b>"],
-            ["🆔 Char ID", rich_code(snap['id'])],
-            ["💰 Price", f"<b>{_fmt(price)}</b>"],
-            ["🏦 Tax (5%)", f"<b>{_fmt(tax)}</b>"],
-            ["💵 You receive", f"<b>{_fmt(gets)}</b>"],
-        ]
+        # 🔥 Clean confirmation message (no tables!)
         body = (
-            rich_heading("🏪 LIST WAIFU", 2)
-            + rich_table(["Field", "Value"], rows, border=1)
-            + rich_note("Confirm to create this listing?")
+            f"🏪 <b>LIST WAIFU</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🌸 <b>{_esc(snap['name'])}</b>\n"
+            f"⭐ {rar} <b>{_esc(snap['rarity'])}</b>\n"
+            f"🆔 <code>{_esc(snap['id'])}</code>\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"💰 <b>Price:</b> <b>{_fmt(price)}</b>\n"
+            f"🏦 <b>Tax (5%):</b> <b>{_fmt(tax)}</b>\n"
+            f"💵 <b>You receive:</b> <b>{_fmt(gets)}</b>\n\n"
+            f"<i>Confirm to create this listing?</i>"
         )
 
         kb = InlineKeyboardMarkup([[
@@ -661,13 +546,12 @@ async def sellwaifu(update: Update, context: CallbackContext):
 
 
 # ══════════════════════════════════════════════════════════════
-# /wbuy <listing_id>
+# /wbuy
 # ══════════════════════════════════════════════════════════════
 async def wbuy(update: Update, context: CallbackContext):
     try:
         user = update.effective_user
         args = context.args or []
-
         LOGGER.info(f"[wbuy] user={user.id} args={args}")
 
         if len(args) != 1:
@@ -696,7 +580,6 @@ async def wbuy(update: Update, context: CallbackContext):
             await _send(update, f"❌ Need <b>{_fmt(price)}</b>, you have <b>{_fmt(bal)}</b>.")
             return
 
-        # Verify seller still owns
         seller = await user_collection.find_one({'id': listing['seller_id']})
         if not seller or not any(
             str(c.get('id', '')).strip() == str(listing['waifu_id'])
@@ -713,17 +596,18 @@ async def wbuy(update: Update, context: CallbackContext):
             {'listing_id': lid, 'price': price},
         )
 
-        rows = [
-            ["🌸 Waifu", f"<b>{rich_esc(listing['waifu_name'])}</b>"],
-            ["⭐ Rarity", f"{rar} <b>{rich_esc(listing['waifu_rarity'])}</b>"],
-            ["🆔 Char ID", rich_code(listing['waifu_id'])],
-            ["💰 Price", f"<b>{_fmt(price)}</b>"],
-            ["💳 Your balance", f"<b>{_fmt(bal)}</b>"],
-        ]
+        # 🔥 Clean confirmation (no tables)
         body = (
-            rich_heading("🛒 PURCHASE CONFIRMATION", 2)
-            + rich_table(["Field", "Value"], rows, border=1)
-            + rich_note("Are you sure you want to buy this waifu?")
+            f"🛒 <b>PURCHASE CONFIRMATION</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🌸 <b>{_esc(listing['waifu_name'])}</b>\n"
+            f"⭐ {rar} <b>{_esc(listing['waifu_rarity'])}</b>\n"
+            f"🆔 <code>{_esc(listing['waifu_id'])}</code>\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"💰 <b>Price:</b> <b>{_fmt(price)}</b>\n"
+            f"💳 <b>Your balance:</b> <b>{_fmt(bal)}</b>\n"
+            f"💵 <b>After purchase:</b> <b>{_fmt(bal - price)}</b>\n\n"
+            f"<i>Are you sure you want to buy this waifu?</i>"
         )
 
         kb = InlineKeyboardMarkup([[
@@ -736,7 +620,7 @@ async def wbuy(update: Update, context: CallbackContext):
 
 
 # ══════════════════════════════════════════════════════════════
-# EXECUTE SELL (after confirmation)
+# EXEC SELL
 # ══════════════════════════════════════════════════════════════
 async def _exec_sell(query, user_id: int, params: dict):
     waifu_id = str(params.get('waifu_id', ''))
@@ -759,9 +643,8 @@ async def _exec_sell(query, user_id: int, params: dict):
         await query.answer("Not in collection.", show_alert=True)
         return
 
-    if await marketplace_col.find_one(
-        {'seller_id': user_id, 'waifu_id': waifu_id, 'status': 'ACTIVE'}
-    ):
+    # Double-check global uniqueness
+    if await marketplace_col.find_one({'waifu_id': waifu_id, 'status': 'ACTIVE'}):
         await query.answer("Already listed.", show_alert=True)
         return
 
@@ -769,7 +652,6 @@ async def _exec_sell(query, user_id: int, params: dict):
         await query.answer("Already locked.", show_alert=True)
         return
 
-    # Generate unique listing id
     listing_id = None
     for _ in range(10):
         c = _gen_listing_id()
@@ -802,42 +684,38 @@ async def _exec_sell(query, user_id: int, params: dict):
         'buyer_id': None,
     }
 
-    # Insert first, then lock (rollback insert if lock fails)
     try:
         await marketplace_col.insert_one(doc)
     except Exception as e:
         LOGGER.error(f"[sell] insert failed: {e}")
-        await query.answer("Failed to create listing.", show_alert=True)
+        await query.answer("Failed to create listing (duplicate?).", show_alert=True)
         return
 
     try:
         await _lock(user_id, waifu_id, listing_id)
     except Exception as e:
-        # Rollback listing
-        LOGGER.error(f"[sell] lock failed, rolling back listing {listing_id}: {e}")
+        LOGGER.error(f"[sell] lock failed: {e}")
         await marketplace_col.delete_one({'listing_id': listing_id})
         await query.answer("Failed to lock waifu.", show_alert=True)
         return
 
     tax = int(round(price * MARKET_TAX_RATE))
     txt = (
-        f"✅ <b>Listing created</b>\n\n"
+        f"✅ <b>Listing created!</b>\n\n"
         f"🆔 <code>{listing_id}</code>\n"
         f"🌸 {_esc(snap['name'])}\n"
         f"💰 <b>{_fmt(price)}</b>\n"
-        f"💵 You'll receive: <b>{_fmt(price - tax)}</b>"
+        f"💵 You'll receive: <b>{_fmt(price - tax)}</b>\n\n"
+        f"<i>Waiting for a buyer...</i>"
     )
     try:
-        await query.edit_message_text(_plain_fallback(txt), parse_mode='HTML')
+        await query.edit_message_text(txt, parse_mode='HTML')
     except Exception:
-        try:
-            await query.edit_message_text(txt, parse_mode='HTML')
-        except Exception:
-            pass
+        pass
 
 
 # ══════════════════════════════════════════════════════════════
-# EXECUTE BUY (after confirmation) — atomic + rollback
+# EXEC BUY
 # ══════════════════════════════════════════════════════════════
 async def _exec_buy(query, buyer_id: int, params: dict):
     lid = str(params.get('listing_id', ''))
@@ -847,14 +725,9 @@ async def _exec_buy(query, buyer_id: int, params: dict):
 
     now = _now()
 
-    # ── Step 1: Atomic claim ACTIVE → PROCESSING ─────────────
     claim = await marketplace_col.find_one_and_update(
         {'listing_id': lid, 'status': 'ACTIVE'},
-        {'$set': {
-            'status': 'PROCESSING',
-            'buyer_id': buyer_id,
-            'processing_at': now,
-        }},
+        {'$set': {'status': 'PROCESSING', 'buyer_id': buyer_id, 'processing_at': now}},
         return_document=True,
     )
     if not claim:
@@ -869,7 +742,6 @@ async def _exec_buy(query, buyer_id: int, params: dict):
     waifu_id = str(listing['waifu_id'])
 
     async def rollback(reason: str):
-        """Revert listing to ACTIVE (we didn't touch coins/waifu yet)."""
         await marketplace_col.update_one(
             {'listing_id': lid, 'status': 'PROCESSING'},
             {'$set': {'status': 'ACTIVE', 'buyer_id': None, 'processing_at': None}},
@@ -877,13 +749,11 @@ async def _exec_buy(query, buyer_id: int, params: dict):
         LOGGER.error(f"[buy] rollback {lid}: {reason}")
         await query.answer(f"❌ {reason}", show_alert=True)
 
-    # ── Step 2: Validate balance ─────────────────────────────
     bal = await get_balance(buyer_id)
     if bal < price:
         await rollback("Balance changed")
         return
 
-    # ── Step 3: Atomic coin deduction ────────────────────────
     d = await coins_collection.update_one(
         {'user_id': buyer_id, 'coins': {'$gte': price}},
         {'$inc': {'coins': -price}},
@@ -892,20 +762,15 @@ async def _exec_buy(query, buyer_id: int, params: dict):
         await rollback("Balance changed")
         return
 
-    # Coins deducted — from here on, rollback must refund buyer
     async def rollback_with_refund(reason: str):
-        await coins_collection.update_one(
-            {'user_id': buyer_id},
-            {'$inc': {'coins': price}},
-        )
+        await coins_collection.update_one({'user_id': buyer_id}, {'$inc': {'coins': price}})
         await marketplace_col.update_one(
             {'listing_id': lid, 'status': 'PROCESSING'},
             {'$set': {'status': 'ACTIVE', 'buyer_id': None, 'processing_at': None}},
         )
-        LOGGER.error(f"[buy] refunded+rollback {lid}: {reason}")
+        LOGGER.error(f"[buy] refund+rollback {lid}: {reason}")
         await query.answer(f"❌ {reason}", show_alert=True)
 
-    # ── Step 4: Verify seller + find waifu ───────────────────
     seller = await user_collection.find_one({'id': seller_id})
     if not seller:
         await rollback_with_refund("Seller gone")
@@ -922,7 +787,6 @@ async def _exec_buy(query, buyer_id: int, params: dict):
 
     removed_char = seller_chars.pop(idx)
 
-    # ── Step 5: Update seller collection ─────────────────────
     s = await user_collection.update_one(
         {'id': seller_id}, {'$set': {'characters': seller_chars}}
     )
@@ -930,7 +794,6 @@ async def _exec_buy(query, buyer_id: int, params: dict):
         await rollback_with_refund("Seller update failed")
         return
 
-    # ── Step 6: Add to buyer collection ──────────────────────
     snap = listing.get('waifu_snapshot') or _snap({
         'id': waifu_id,
         'name': listing.get('waifu_name'),
@@ -940,21 +803,16 @@ async def _exec_buy(query, buyer_id: int, params: dict):
     })
 
     async def rollback_full(reason: str):
-        """Full rollback: refund buyer + restore seller + revert listing."""
         try:
             await user_collection.update_one(
-                {'id': seller_id},
-                {'$push': {'characters': removed_char}},
+                {'id': seller_id}, {'$push': {'characters': removed_char}},
             )
         except Exception as e:
-            LOGGER.error(f"[buy] seller restore failed {lid}: {e}")
+            LOGGER.error(f"[buy] seller restore failed: {e}")
         try:
-            await coins_collection.update_one(
-                {'user_id': buyer_id},
-                {'$inc': {'coins': price}},
-            )
+            await coins_collection.update_one({'user_id': buyer_id}, {'$inc': {'coins': price}})
         except Exception as e:
-            LOGGER.error(f"[buy] buyer refund failed {lid}: {e}")
+            LOGGER.error(f"[buy] refund failed: {e}")
         try:
             await marketplace_col.update_one(
                 {'listing_id': lid, 'status': 'PROCESSING'},
@@ -962,15 +820,12 @@ async def _exec_buy(query, buyer_id: int, params: dict):
             )
         except Exception:
             pass
-        LOGGER.error(f"[buy] full rollback {lid}: {reason}")
         await query.answer(f"❌ {reason}", show_alert=True)
 
     buyer_doc = await user_collection.find_one({'id': buyer_id})
     try:
         if buyer_doc:
-            await user_collection.update_one(
-                {'id': buyer_id}, {'$push': {'characters': snap}}
-            )
+            await user_collection.update_one({'id': buyer_id}, {'$push': {'characters': snap}})
         else:
             await user_collection.insert_one({
                 'id': buyer_id,
@@ -983,36 +838,26 @@ async def _exec_buy(query, buyer_id: int, params: dict):
         await rollback_full("Buyer update failed")
         return
 
-    # ── Step 7: Credit seller + tax ──────────────────────────
     try:
         await coins_collection.update_one(
-            {'user_id': seller_id},
-            {'$inc': {'coins': gets}},
-            upsert=True,
+            {'user_id': seller_id}, {'$inc': {'coins': gets}}, upsert=True,
         )
         await market_stats_col.update_one(
-            {'_id': 'marketplace'},
-            {'$inc': {'tax_pot': tax}},
-            upsert=True,
+            {'_id': 'marketplace'}, {'$inc': {'tax_pot': tax}}, upsert=True,
         )
     except Exception as e:
-        LOGGER.error(f"[buy] seller credit failed: {e}")
+        LOGGER.error(f"[buy] payment failed: {e}")
         await rollback_full("Payment failed")
         return
 
-    # ── Step 8: Finalize listing ─────────────────────────────
     txn_id = "TXN" + "".join(random.choices(string.ascii_uppercase + string.digits, k=9))
     try:
         await marketplace_col.update_one(
             {'listing_id': lid},
             {'$set': {
-                'status': 'SOLD',
-                'sold_at': _now(),
-                'updated_at': _now(),
-                'buyer_id': buyer_id,
-                'tax_paid': tax,
-                'seller_received': gets,
-                'transaction_id': txn_id,
+                'status': 'SOLD', 'sold_at': _now(), 'updated_at': _now(),
+                'buyer_id': buyer_id, 'tax_paid': tax,
+                'seller_received': gets, 'transaction_id': txn_id,
             }},
         )
         await _unlock(seller_id, waifu_id, lid)
@@ -1030,28 +875,24 @@ async def _exec_buy(query, buyer_id: int, params: dict):
             'status': 'COMPLETED',
         })
     except Exception as e:
-        LOGGER.error(f"[buy] finalization error: {e}")
-        # Transaction already partially recorded; log for admin
-        await market_txn_col.insert_one({
-            'transaction_id': txn_id,
-            'listing_id': lid,
-            'buyer_id': buyer_id,
-            'seller_id': seller_id,
-            'waifu_id': waifu_id,
-            'amount': price,
-            'tax': tax,
-            'seller_received': gets,
-            'timestamp': _now(),
-            'status': 'PARTIAL_FAILURE',
-            'error': str(e),
-        })
+        LOGGER.error(f"[buy] finalize error: {e}")
+        try:
+            await market_txn_col.insert_one({
+                'transaction_id': txn_id,
+                'listing_id': lid, 'buyer_id': buyer_id, 'seller_id': seller_id,
+                'waifu_id': waifu_id, 'amount': price, 'tax': tax,
+                'seller_received': gets, 'timestamp': _now(),
+                'status': 'PARTIAL_FAILURE', 'error': str(e),
+            })
+        except Exception:
+            pass
 
-    LOGGER.info(f"[buy] SUCCESS {lid} txn={txn_id} buyer={buyer_id} seller={seller_id}")
+    LOGGER.info(f"[buy] SUCCESS {lid} txn={txn_id}")
 
-    # Success message
+    # 🔥 SUCCESS: edit message
     try:
         await query.edit_message_text(
-            f"✅ <b>Purchase complete</b>\n\n"
+            f"✅ <b>Purchase complete!</b>\n\n"
             f"🌸 {_esc(listing.get('waifu_name', ''))}\n"
             f"💰 Paid: <b>{_fmt(price)}</b>\n"
             f"📜 <code>{txn_id}</code>",
@@ -1059,6 +900,36 @@ async def _exec_buy(query, buyer_id: int, params: dict):
         )
     except Exception:
         pass
+
+    # 🔥 Notify SELLER via DM
+    try:
+        buyer_mention = (
+            f"@{query.from_user.username}"
+            if getattr(query.from_user, 'username', None)
+            else _esc(query.from_user.first_name or 'User')
+        )
+        seller_msg = (
+            f"🎉 <b>SOLD!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🌸 <b>{_esc(listing.get('waifu_name', ''))}</b>\n"
+            f"🆔 <code>{_esc(waifu_id)}</code>\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"💰 <b>Sold for:</b> <b>{_fmt(price)}</b>\n"
+            f"🏦 <b>Tax (5%):</b> <b>{_fmt(tax)}</b>\n"
+            f"💵 <b>You received:</b> <b>{_fmt(gets)}</b> Edollers\n\n"
+            f"👤 <b>Buyer:</b> {buyer_mention}\n"
+            f"📜 <b>TXN:</b> <code>{txn_id}</code>"
+        )
+        await application.bot.send_message(
+            chat_id=seller_id,
+            text=seller_msg,
+            parse_mode='HTML',
+        )
+        LOGGER.info(f"[buy] seller DM sent to {seller_id}")
+    except Forbidden:
+        LOGGER.warning(f"[buy] seller {seller_id} blocked the bot — DM skipped")
+    except Exception as e:
+        LOGGER.warning(f"[buy] seller DM failed: {e}")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1108,28 +979,33 @@ async def _render_my(update, user_id, page=1, edit_query=None):
               .limit(LISTINGS_PER_PAGE))
     listings = await cursor.to_list(length=LISTINGS_PER_PAGE)
 
-    h = [rich_heading("📦 MY MARKETPLACE LISTINGS", 2)]
     if total == 0:
-        h.append(rich_note("You have no active listings."))
+        body = (
+            f"📦 <b>MY MARKETPLACE LISTINGS</b>\n\n"
+            f"<i>You have no active listings.</i>\n\n"
+            f"💡 Use <code>/sellwaifu &lt;id&gt; &lt;price&gt;</code>"
+        )
     else:
-        h.append(rich_note(f"📊 {total} active · Page {page}/{total_pages}"))
-        headers = ["Listing", "Char ID", "Name", "Rarity", "Price"]
-        rows = []
-        for l in listings:
-            nm = str(l['waifu_name'])
-            if len(nm) > 14:
-                nm = nm[:13] + "…"
-            rows.append([
-                str(l['listing_id']),
-                str(l.get('waifu_id', '?')),
-                nm,
-                _rar_symbol_only(l.get('waifu_rarity', '')),
-                f"${_fmt(l['price'])}",
-            ])
-        h.append(rich_table(headers, rows, border=1))
+        lines = [
+            f"📦 <b>MY MARKETPLACE LISTINGS</b>\n",
+            f"📊 <b>{total}</b> active · Page <b>{page}/{total_pages}</b>\n",
+        ]
+        for i, l in enumerate(listings, 1):
+            nm = _esc(str(l.get('waifu_name', '?')))
+            lid = _esc(str(l.get('listing_id', '?')))
+            wid = _esc(str(l.get('waifu_id', '?')))
+            rar = _rar_symbol_only(l.get('waifu_rarity', ''))
+            price = _fmt(l.get('price', 0))
+            lines.append(
+                f"{i}. {rar} <b>{nm}</b>\n"
+                f"   🆔 <code>{lid}</code> │ Char: <code>{wid}</code>\n"
+                f"   💰 <b>${price}</b>\n"
+            )
+        lines.append("\n💡 Cancel with <code>/cancelsell &lt;id&gt;</code>")
+        body = "\n".join(lines)
 
     kb = None
-    if total > 1:
+    if total_pages > 1:
         row = []
         if page > 1:
             row.append(InlineKeyboardButton("◀️", callback_data=f"mkt:mylist:{page - 1}"))
@@ -1139,8 +1015,8 @@ async def _render_my(update, user_id, page=1, edit_query=None):
         kb = InlineKeyboardMarkup([row])
 
     if edit_query:
-        return await _edit(edit_query, "".join(h), kb=kb)
-    return await _send(update, "".join(h), kb=kb)
+        return await _edit(edit_query, body, kb=kb)
+    return await _send(update, body, kb=kb)
 
 
 async def mylistings(update: Update, context: CallbackContext):
@@ -1151,7 +1027,7 @@ async def mylistings(update: Update, context: CallbackContext):
 
 
 # ══════════════════════════════════════════════════════════════
-# /marketstats (sudo only)
+# /marketstats
 # ══════════════════════════════════════════════════════════════
 async def marketstats(update: Update, context: CallbackContext):
     try:
@@ -1168,24 +1044,23 @@ async def marketstats(update: Update, context: CallbackContext):
         pot_doc = await market_stats_col.find_one({'_id': 'marketplace'})
         pot = int(pot_doc.get('tax_pot', 0)) if pot_doc else 0
 
-        headers = ["Metric", "Value"]
-        rows = [
-            ["🟢 Active", f"<b>{active}</b>"],
-            ["✅ Sold", f"<b>{sold}</b>"],
-            ["❌ Cancelled", f"<b>{cancelled}</b>"],
-            ["⏳ Processing", f"<b>{processing}</b>"],
-            ["⚠️ Failed", f"<b>{failed}</b>"],
-            ["📜 Txns", f"<b>{txns}</b>"],
-            ["💰 Tax pot", f"<b>{_fmt(pot)}</b>"],
-        ]
-        body = rich_heading("🏦 MARKETPLACE STATS", 2) + rich_table(headers, rows, border=1)
+        body = (
+            f"🏦 <b>MARKETPLACE STATS</b>\n\n"
+            f"🟢 Active: <b>{active}</b>\n"
+            f"✅ Sold: <b>{sold}</b>\n"
+            f"❌ Cancelled: <b>{cancelled}</b>\n"
+            f"⏳ Processing: <b>{processing}</b>\n"
+            f"⚠️ Failed: <b>{failed}</b>\n"
+            f"📜 Txns: <b>{txns}</b>\n"
+            f"💰 Tax pot: <b>{_fmt(pot)}</b>"
+        )
         await _send(update, body)
     except Exception as e:
         LOGGER.exception(f"[marketstats] error: {e}")
 
 
 # ══════════════════════════════════════════════════════════════
-# CALLBACK DISPATCHER (secure, always answers)
+# CALLBACKS
 # ══════════════════════════════════════════════════════════════
 async def market_cb(update: Update, context: CallbackContext):
     q = update.callback_query
@@ -1193,14 +1068,16 @@ async def market_cb(update: Update, context: CallbackContext):
     user_id = q.from_user.id if q.from_user else 0
 
     try:
-        # ─── Pagination ───────────────────────────────────────
+        # Pagination: mkt:page:N:search
         if data.startswith("mkt:page:"):
+            parts = data.split(":", 3)
             try:
-                page = int(data.split(":")[2])
+                page = int(parts[2])
             except Exception:
                 page = 1
+            search = parts[3] if len(parts) > 3 else ''
             await q.answer()
-            await _render_market(None, page=page, edit_query=q)
+            await _render_market(None, page=page, search=search, edit_query=q)
             return
 
         if data.startswith("mkt:mylist:"):
@@ -1212,7 +1089,6 @@ async def market_cb(update: Update, context: CallbackContext):
             await _render_my(None, user_id, page=page, edit_query=q)
             return
 
-        # ─── Confirm YES ──────────────────────────────────────
         if data.startswith("mkt:yes:"):
             token = data[len("mkt:yes:"):]
             pending = await _consume_pending(token, user_id)
@@ -1230,7 +1106,6 @@ async def market_cb(update: Update, context: CallbackContext):
                 await q.answer("Unknown action.", show_alert=True)
             return
 
-        # ─── Confirm NO ───────────────────────────────────────
         if data.startswith("mkt:no:"):
             token = data[len("mkt:no:"):]
             pending = await _consume_pending(token, user_id)
@@ -1248,7 +1123,6 @@ async def market_cb(update: Update, context: CallbackContext):
             await q.answer()
             return
 
-        # Default — always answer
         await q.answer()
     except Exception as e:
         LOGGER.exception(f"[market_cb] error: {e}")
@@ -1271,11 +1145,10 @@ application.add_handler(CallbackQueryHandler(market_cb, pattern=r'^mkt:', block=
 
 
 # ══════════════════════════════════════════════════════════════
-# STARTUP — schedule indexes + recovery
+# STARTUP
 # ══════════════════════════════════════════════════════════════
 async def _startup():
     await ensure_indexes()
-    await _cleanup_expired_pendings()
     await _recover_stuck_processings()
 
 
