@@ -162,7 +162,7 @@ async def _send_rich(update_or_query, html_text: str, *, kb=None, edit: bool = F
 
 
 # ══════════════════════════════════════════════════════════════
-# CATEGORY DATA
+# CATEGORY DATA (no admin section)
 # ══════════════════════════════════════════════════════════════
 CATEGORIES = {
     "catch": {
@@ -227,18 +227,6 @@ CATEGORIES = {
             ["/stats", "Bot statistics"],
         ],
     },
-    "admin": {
-        "emoji": "⚙️",
-        "title": "GROUP TOOLS",
-        "rows": [
-            ["/changetime &lt;num&gt;", "Set spawn frequency (admin)"],
-            ["/spawn &lt;id&gt; &lt;freq&gt; &lt;scope&gt;", "Control rarity spawn (sudo)"],
-            ["/broadcast", "Broadcast to all users (owner)"],
-            ["/banuser /unbanuser", "Ban/unban user (sudo)"],
-            ["/bangroup /unbangroup", "Ban/unban group (sudo)"],
-            ["/bannedlist", "List banned users/groups (sudo)"],
-        ],
-    },
     "redeem": {
         "emoji": "🎁",
         "title": "REDEEM CODES",
@@ -260,7 +248,6 @@ def _banner_url() -> str:
 
 
 def _mk_table(rows, headers=None):
-    """Build a table for commands (rich if available, else HTML)."""
     headers = headers or ["Command", "What it does"]
     if RICH_UI_OK and _rich_table:
         try:
@@ -276,24 +263,9 @@ def _mk_table(rows, headers=None):
 
 
 def build_start_html(first_name: str) -> str:
+    """Simplified start — no <details> (they were causing fallback issues)."""
     banner = _banner_url()
     name = _esc(first_name or 'User')
-
-    features = [
-        ["🎴 Catch",        "Spawn & grab waifus in groups"],
-        ["🏪 Marketplace",  "Buy & sell characters for Edollers"],
-        ["🎁 Trade",        "Trade / gift waifus with friends"],
-        ["🎳 /ball",        "Earn Edollers daily"],
-        ["🎨 Harem Mode",   "Filter & customize your harem"],
-    ]
-    table = _mk_table(features, headers=["Feature", "Details"])
-
-    why_choose = (
-        "⭐ Simple slash commands, no setup needed.\n"
-        "🎯 Auto-catching, trade, marketplace & coin economy.\n"
-        "🎨 Fully customizable harem modes & styles.\n"
-        "🌐 Click <b>HELP</b> below for all commands."
-    )
 
     body = ""
     if banner:
@@ -306,12 +278,24 @@ def build_start_html(first_name: str) -> str:
         "</blockquote>"
     )
 
-    if _rich_details:
-        body += f"<details open><summary>✨ KEY FEATURES ✨</summary>{table}</details>"
-        body += f"<details><summary>⚡ WHY CHOOSE IT? ⚡</summary>{why_choose}</details>"
-    else:
-        body += f"\n<b>✨ KEY FEATURES ✨</b>\n{table}"
-        body += f"\n<b>⚡ WHY CHOOSE IT? ⚡</b>\n{why_choose}"
+    # Key features table (no details wrapper)
+    features = [
+        ["🎴 Catch",       "Spawn & grab waifus in groups"],
+        ["🏪 Marketplace", "Buy & sell characters for Edollers"],
+        ["🎁 Trade",       "Trade / gift waifus with friends"],
+        ["🎳 /ball",       "Earn Edollers daily"],
+        ["🎨 Harem Mode",  "Filter & customize your harem"],
+    ]
+    body += f"\n<h3>✨ KEY FEATURES ✨</h3>"
+    body += _mk_table(features, headers=["Feature", "Details"])
+
+    body += f"\n<h3>⚡ WHY CHOOSE IT? ⚡</h3>"
+    body += (
+        "⭐ Simple slash commands, no setup needed.\n"
+        "🎯 Auto-catching, trade, marketplace & coin economy.\n"
+        "🎨 Fully customizable harem modes & styles.\n"
+        "🌐 Click <b>HELP</b> below for all commands."
+    )
 
     body += "<blockquote>POWERED BY » <b>WAIFU CATCHER</b></blockquote>"
     return body
@@ -322,24 +306,20 @@ def build_help_menu_html(first_name: str) -> str:
     banner = _banner_url()
     name = _esc(first_name or 'User')
 
-    info_rows = [
-        ["📋 Help Menu", "All commands can be used with: /"],
-        ["🎴 Categories", "Pick a category below"],
-    ]
-    info_table = _mk_table(info_rows, headers=["Feature", "Details"])
-
     body = ""
     if banner:
         body += f'<img src="{_esc(banner)}" />'
-    body += f"<h3>📜 CHOOSE A CATEGORY</h3>"
+    body += "<h3>📜 CHOOSE A CATEGORY</h3>"
     body += (
         f"<blockquote>Hey {name}, pick a category below to see its commands.</blockquote>"
     )
 
-    if _rich_details:
-        body += f"<details open><summary>✨ HELP FEATURES ✨</summary>{info_table}</details>"
-    else:
-        body += f"\n<b>✨ HELP FEATURES ✨</b>\n{info_table}"
+    info_rows = [
+        ["📋 Help Menu", "All commands can be used with: /"],
+        ["🎴 Categories", "Pick a category below"],
+    ]
+    body += f"\n<h4>✨ HELP FEATURES ✨</h4>"
+    body += _mk_table(info_rows, headers=["Feature", "Details"])
 
     body += "<blockquote>POWERED BY » <b>WAIFU CATCHER</b></blockquote>"
     return body
@@ -361,12 +341,8 @@ def build_category_html(cat_key: str, first_name: str) -> str:
         f"<h3>{emoji} {title}</h3>"
         f"<blockquote>Hey {name}, here are all commands in this category.</blockquote>"
     )
-
-    if _rich_details:
-        body += f"<details open><summary>📋 COMMANDS</summary>{table}</details>"
-    else:
-        body += f"\n<b>📋 COMMANDS</b>\n{table}"
-
+    body += f"\n<h4>📋 COMMANDS</h4>"
+    body += table
     body += "<blockquote>🔙 Use the buttons below to navigate.</blockquote>"
     return body
 
@@ -386,7 +362,7 @@ def _start_kb() -> InlineKeyboardMarkup:
 
 
 def _help_menu_kb() -> InlineKeyboardMarkup:
-    """Help menu — grid of category buttons."""
+    """Help menu — 3x3 grid of category buttons (no admin)."""
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("🌸 CATCH", callback_data="help:cat:catch"),
@@ -399,7 +375,6 @@ def _help_menu_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton("🏆 TOP", callback_data="help:cat:top"),
         ],
         [
-            InlineKeyboardButton("⚙️ ADMIN", callback_data="help:cat:admin"),
             InlineKeyboardButton("🎁 REDEEM", callback_data="help:cat:redeem"),
         ],
         [InlineKeyboardButton("⤾ Bᴀᴄᴋ Tᴏ Hᴏᴍᴇ", callback_data="back")],
@@ -407,7 +382,6 @@ def _help_menu_kb() -> InlineKeyboardMarkup:
 
 
 def _category_kb(cat_key: str) -> InlineKeyboardMarkup:
-    """Back button within category view."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("◀ Bᴀᴄᴋ Tᴏ Cᴀᴛᴇɢᴏʀɪᴇs", callback_data="help:home")],
     ])
@@ -468,7 +442,6 @@ async def button(update: Update, context: CallbackContext) -> None:
     first_name = query.from_user.first_name or 'User'
 
     try:
-        # ── Main help menu ──
         if data in ('help', 'help:home'):
             await _send_rich(
                 query,
@@ -478,7 +451,6 @@ async def button(update: Update, context: CallbackContext) -> None:
             )
             return
 
-        # ── Category view ──
         if data.startswith("help:cat:"):
             cat_key = data.split(":", 2)[2]
             if cat_key not in CATEGORIES:
@@ -492,7 +464,6 @@ async def button(update: Update, context: CallbackContext) -> None:
             )
             return
 
-        # ── Back to start ──
         if data == 'back':
             await _send_rich(
                 query,
