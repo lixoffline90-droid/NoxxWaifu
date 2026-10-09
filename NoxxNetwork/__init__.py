@@ -52,8 +52,9 @@ application = Application.builder().token(TOKEN).build()
 
 # ────────────────────────────────────────────────────────────
 # Pyrogram client — rich UI only
-#  • in_memory=True → no session file, always fresh auth
-#  • no_updates=True → no dispatcher / no getUpdates
+#  • no_updates=True → dispatcher won't call getUpdates
+#    (prevents Conflict with PTB's polling)
+#  • start() is called in __main__.py to authorize the bot
 # ────────────────────────────────────────────────────────────
 RICH_TOKEN = os.getenv("RICH_TOKEN") or TOKEN
 
@@ -64,7 +65,6 @@ try:
         api_hash=api_hash,
         bot_token=RICH_TOKEN,
         no_updates=True,
-        in_memory=True,
     )
 except Exception as _e:
     LOGGER.warning(f"[__init__] Waifuu client init failed: {_e}")
