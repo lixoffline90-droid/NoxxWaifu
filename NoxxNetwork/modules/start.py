@@ -1,5 +1,5 @@
 """
-Start & Help — Rich UI (fixed order: heading → image → content)
+Start & Help — Rich UI with fancy small-caps font
 """
 import random
 import html as _html
@@ -21,11 +21,45 @@ BANNER_URL = "https://i.ibb.co/tFnrhjh/843803f5a80f.jpg"
 
 
 # ══════════════════════════════════════════════════════════════
+# FANCY FONT HELPER — converts ASCII to small-caps unicode
+# ══════════════════════════════════════════════════════════════
+_SMALLCAPS_MAP = {
+    'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ', 'f': 'ꜰ',
+    'g': 'ɢ', 'h': 'ʜ', 'i': 'ɪ', 'j': 'ᴊ', 'k': 'ᴋ', 'l': 'ʟ',
+    'm': 'ᴍ', 'n': 'ɴ', 'o': 'ᴏ', 'p': 'ᴘ', 'q': 'ǫ', 'r': 'ʀ',
+    's': 'ꜱ', 't': 'ᴛ', 'u': 'ᴜ', 'v': 'ᴠ', 'w': 'ᴡ', 'x': 'x',
+    'y': 'ʏ', 'z': 'ᴢ',
+    'A': 'ᴀ', 'B': 'ʙ', 'C': 'ᴄ', 'D': 'ᴅ', 'E': 'ᴇ', 'F': 'ꜰ',
+    'G': 'ɢ', 'H': 'ʜ', 'I': 'ɪ', 'J': 'ᴊ', 'K': 'ᴋ', 'L': 'ʟ',
+    'M': 'ᴍ', 'N': 'ɴ', 'O': 'ᴏ', 'P': 'ᴘ', 'Q': 'ǫ', 'R': 'ʀ',
+    'S': 'ꜱ', 'T': 'ᴛ', 'U': 'ᴜ', 'V': 'ᴠ', 'W': 'ᴡ', 'X': 'x',
+    'Y': 'ʏ', 'Z': 'ᴢ',
+}
+
+
+def fancy(text: str) -> str:
+    """Convert ASCII text to small-caps fancy font.
+    Preserves HTML tags, emoji, punctuation, digits, spaces.
+    """
+    import re
+    # Split by HTML tags and preserve them
+    parts = re.split(r'(<[^>]+>)', str(text))
+    out = []
+    for part in parts:
+        if part.startswith('<') and part.endswith('>'):
+            out.append(part)  # keep tags as-is
+        else:
+            out.append(''.join(_SMALLCAPS_MAP.get(ch, ch) for ch in part))
+    return ''.join(out)
+
+
+# ══════════════════════════════════════════════════════════════
 # Rich UI imports
 # ══════════════════════════════════════════════════════════════
 RICH_UI_OK = False
 _rich_send = _rich_edit = None
 _rich_esc = _rich_heading = _rich_table = _rich_note = None
+_rich_details = None
 
 try:
     from NoxxNetwork.rich_ui_decoded import (
@@ -35,6 +69,7 @@ try:
         rich_heading as _rich_heading,
         rich_table as _rich_table,
         rich_note as _rich_note,
+        rich_details as _rich_details,
     )
     RICH_UI_OK = True
     LOGGER.info("[start] rich_ui loaded ✅")
@@ -97,7 +132,6 @@ def _rich_to_clean(html_text: str) -> str:
 # RICH SEND / EDIT
 # ══════════════════════════════════════════════════════════════
 async def _send_rich(update_or_query, html_text: str, *, kb=None, edit: bool = False):
-    # ── Edit mode ──
     if edit and hasattr(update_or_query, 'message'):
         q = update_or_query
         chat_id = q.message.chat.id
@@ -127,7 +161,6 @@ async def _send_rich(update_or_query, html_text: str, *, kb=None, edit: bool = F
             LOGGER.warning(f"[start] edit fallback failed: {e}")
         return
 
-    # ── Send mode ──
     update = update_or_query
     chat_id = update.effective_chat.id
 
@@ -159,7 +192,7 @@ async def _send_rich(update_or_query, html_text: str, *, kb=None, edit: bool = F
 
 
 # ══════════════════════════════════════════════════════════════
-# CATEGORY DATA
+# CATEGORY DATA (NO ADMIN)
 # ══════════════════════════════════════════════════════════════
 CATEGORIES = {
     "catch": {
@@ -180,7 +213,7 @@ CATEGORIES = {
         "emoji": "🏪",
         "title": "MARKETPLACE",
         "rows": [
-            ["/market", "Browse listings"],
+            ["/market", "Browse listings (search by name/id)"],
             ["/sellwaifu", "List a waifu for sale"],
             ["/wbuy", "Buy a listed waifu"],
             ["/cancelsell", "Cancel your listing"],
@@ -256,58 +289,92 @@ def _mk_table(rows, headers=None):
     return "".join(parts)
 
 
-# ─── START (heading → image → blockquote → table → tip) ───────
+# ─── START ────────────────────────────────────────────────────
 def build_start_html(first_name: str) -> str:
     banner = _banner_url()
     name = _esc(first_name or 'User')
 
+    features = [
+        [fancy("🎴 Catch"),       fancy("Spawn & grab waifus in groups")],
+        [fancy("🏪 Marketplace"), fancy("Buy & sell characters for Edollers")],
+        [fancy("🎁 Trade"),       fancy("Trade / gift waifus with friends")],
+        [fancy("🎳 /ball"),       fancy("Earn Edollers daily")],
+        [fancy("🎨 Harem Mode"),  fancy("Filter & customize your harem")],
+    ]
+    table = _mk_table(features, headers=[fancy("Feature"), fancy("Details")])
+
+    why_choose = fancy(
+        "⭐ Simple slash commands, no setup needed.\n"
+        "🎯 Auto-catching, trade, marketplace & coin economy.\n"
+        "🎨 Fully customizable harem modes & styles.\n"
+        "🌐 Click HELP below for all commands."
+    )
+    # Re-bold HELP word (HTML)
+    why_choose = why_choose.replace("ʜᴇʟᴘ", "<b>ʜᴇʟᴘ</b>")
+
     body = ""
-    # 1. Heading FIRST (required by Rich Message format)
-    body += f"<h2>🎐 WAIFU CATCHER</h2>"
-    # 2. Image second
     if banner:
         body += f'<img src="{_esc(banner)}" />'
-    # 3. Welcome
+    body += f"<h2>✨ {fancy('Hey')} <b>{name}</b>, {fancy('Welcome Aboard')}! 🎵 ✨</h2>"
     body += (
-        f"<blockquote>Hey <b>{name}</b>, welcome! "
-        f"I bring anime waifus to your group. 🎴</blockquote>"
+        "<blockquote>"
+        f"{fancy('I am')} <b>{fancy('WAIFU CATCHER')}</b> — "
+        f"{fancy('A powerful Telegram bot that brings anime waifus to your group.')} 🎴"
+        "</blockquote>"
     )
-    # 4. Features table
-    features = [
-        ["🎴 Catch",       "Spawn & grab waifus"],
-        ["🏪 Marketplace", "Buy & sell for Edollers"],
-        ["🎁 Trade",       "Trade / gift waifus"],
-        ["🎳 /ball",       "Earn Edollers daily"],
-        ["🎨 Harem Mode",  "Filter & customize"],
-    ]
-    body += _mk_table(features, headers=["Feature", "Details"])
-    # 5. Tip
-    body += f"<blockquote>💡 <b>CLICK HELP</b> below for all commands.</blockquote>"
+
+    if _rich_details:
+        body += (
+            f"<details open>"
+            f"<summary>{fancy('✨ KEY FEATURES ✨')}</summary>"
+            f"{table}"
+            f"</details>"
+        )
+        body += (
+            f"<details>"
+            f"<summary>{fancy('⚡ WHY CHOOSE IT? ⚡')}</summary>"
+            f"{why_choose}"
+            f"</details>"
+        )
+    else:
+        body += f"\n<b>{fancy('✨ KEY FEATURES ✨')}</b>\n{table}"
+        body += f"\n<b>{fancy('⚡ WHY CHOOSE IT? ⚡')}</b>\n{why_choose}"
+
+    body += f"<blockquote>{fancy('Powered by')} » <b>{fancy('WAIFU CATCHER')}</b></blockquote>"
     return body
 
 
-# ─── HELP MENU (heading → image → blockquote → table → tip) ───
+# ─── HELP MENU ────────────────────────────────────────────────
 def build_help_menu_html(first_name: str) -> str:
     banner = _banner_url()
     name = _esc(first_name or 'User')
 
+    info_rows = [
+        [fancy("📋 Help Menu"), fancy("All commands use: /")],
+        [fancy("🎴 Categories"), fancy("Pick a category below")],
+    ]
+    info_table = _mk_table(info_rows, headers=[fancy("Feature"), fancy("Details")])
+
     body = ""
-    body += f"<h2>📜 HELP CENTER</h2>"
     if banner:
         body += f'<img src="{_esc(banner)}" />'
-    body += f"<blockquote>Hey <b>{name}</b>, pick a category below.</blockquote>"
+    body += f"<h3>📜 {fancy('CHOOSE A CATEGORY')}</h3>"
+    body += (
+        f"<blockquote>{fancy('Hey')} <b>{name}</b>, "
+        f"{fancy('pick a category below to see its commands.')}</blockquote>"
+    )
 
-    info = [
-        ["🌸 CATCH",   "Catch & collection"],
-        ["🏪 MARKET",  "Marketplace buy/sell"],
-        ["💌 TRADE",   "Trade & gift"],
-        ["🪙 ECONOMY", "Edollers & coins"],
-        ["🎨 STYLE",   "Customize harem"],
-        ["🏆 TOP",     "Leaderboards"],
-        ["🎁 REDEEM",  "Redeem codes"],
-    ]
-    body += _mk_table(info, headers=["Category", "About"])
-    body += f"<blockquote>✨ Pick a category from the buttons below.</blockquote>"
+    if _rich_details:
+        body += (
+            f"<details open>"
+            f"<summary>{fancy('✨ HELP FEATURES ✨')}</summary>"
+            f"{info_table}"
+            f"</details>"
+        )
+    else:
+        body += f"\n<b>{fancy('✨ HELP FEATURES ✨')}</b>\n{info_table}"
+
+    body += f"<blockquote>{fancy('Powered by')} » <b>{fancy('WAIFU CATCHER')}</b></blockquote>"
     return body
 
 
@@ -319,14 +386,28 @@ def build_category_html(cat_key: str, first_name: str) -> str:
 
     name = _esc(first_name or 'User')
     emoji = cat["emoji"]
-    title = cat["title"]
-    rows = cat["rows"]
-    table = _mk_table(rows)
+    title = fancy(cat["title"])
+    # Fancy rows
+    rows = [[fancy(r[0]), fancy(r[1])] for r in cat["rows"]]
+    table = _mk_table(rows, headers=[fancy("Command"), fancy("What it does")])
 
-    body = f"<h2>{emoji} {title}</h2>"
-    body += f"<blockquote>Hey <b>{name}</b>, all commands in this category.</blockquote>"
-    body += table
-    body += f"<blockquote>🔙 Use buttons below to navigate.</blockquote>"
+    body = (
+        f"<h3>{emoji} {title}</h3>"
+        f"<blockquote>{fancy('Hey')} <b>{name}</b>, "
+        f"{fancy('here are all commands in this category.')}</blockquote>"
+    )
+
+    if _rich_details:
+        body += (
+            f"<details open>"
+            f"<summary>{fancy('📋 COMMANDS')}</summary>"
+            f"{table}"
+            f"</details>"
+        )
+    else:
+        body += f"\n<b>{fancy('📋 COMMANDS')}</b>\n{table}"
+
+    body += f"<blockquote>{fancy('🔙 Use the buttons below to navigate.')}</blockquote>"
     return body
 
 
@@ -347,17 +428,17 @@ def _start_kb() -> InlineKeyboardMarkup:
 def _help_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🌸 CATCH", callback_data="help:cat:catch"),
-            InlineKeyboardButton("🏪 MARKET", callback_data="help:cat:market"),
-            InlineKeyboardButton("💌 TRADE", callback_data="help:cat:trade"),
+            InlineKeyboardButton("🌸 Cᴀᴛᴄʜ", callback_data="help:cat:catch"),
+            InlineKeyboardButton("🏪 Mᴀʀᴋᴇᴛ", callback_data="help:cat:market"),
+            InlineKeyboardButton("💌 Tʀᴀᴅᴇ", callback_data="help:cat:trade"),
         ],
         [
-            InlineKeyboardButton("🪙 ECONOMY", callback_data="help:cat:economy"),
-            InlineKeyboardButton("🎨 STYLE", callback_data="help:cat:style"),
-            InlineKeyboardButton("🏆 TOP", callback_data="help:cat:top"),
+            InlineKeyboardButton("🪙 Eᴄᴏɴᴏᴍʏ", callback_data="help:cat:economy"),
+            InlineKeyboardButton("🎨 Sᴛʏʟᴇ", callback_data="help:cat:style"),
+            InlineKeyboardButton("🏆 Tᴏᴘ", callback_data="help:cat:top"),
         ],
         [
-            InlineKeyboardButton("🎁 REDEEM", callback_data="help:cat:redeem"),
+            InlineKeyboardButton("🎁 Rᴇᴅᴇᴇᴍ", callback_data="help:cat:redeem"),
         ],
         [InlineKeyboardButton("⤾ Bᴀᴄᴋ Tᴏ Hᴏᴍᴇ", callback_data="back")],
     ])
@@ -408,8 +489,8 @@ async def start(update: Update, context: CallbackContext) -> None:
         return
 
     html_text = (
-        f"<h3>🎴 WAIFU CATCHER</h3>"
-        f"<blockquote>Alive! Connect to me in PM.</blockquote>"
+        f"<h3>🎴 {fancy('WAIFU CATCHER')}</h3>"
+        f"<blockquote>{fancy('Alive! Connect to me in PM for more information.')}</blockquote>"
     )
     await _send_rich(update, html_text, kb=_start_kb())
 
