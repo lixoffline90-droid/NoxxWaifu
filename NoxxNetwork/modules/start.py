@@ -1,5 +1,5 @@
 """
-Start & Help — Rich UI with fixed banner
+Start & Help — Rich UI (fixed order: heading → image → content)
 """
 import random
 import html as _html
@@ -8,20 +8,14 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext, CallbackQueryHandler, CommandHandler
 
 from NoxxNetwork import (
-    application,
-    PHOTO_URL,
-    SUPPORT_CHAT,
-    UPDATE_CHAT,
-    BOT_USERNAME,
-    GROUP_ID,
-    db,
-    LOGGER,
+    application, PHOTO_URL, SUPPORT_CHAT, UPDATE_CHAT,
+    BOT_USERNAME, GROUP_ID, db, LOGGER,
 )
 from NoxxNetwork import pm_users as collection
 
 
 # ══════════════════════════════════════════════════════════════
-# FIXED BANNER (hardcoded — guaranteed to work)
+# FIXED BANNER
 # ══════════════════════════════════════════════════════════════
 BANNER_URL = "https://i.ibb.co/tFnrhjh/843803f5a80f.jpg"
 
@@ -32,7 +26,6 @@ BANNER_URL = "https://i.ibb.co/tFnrhjh/843803f5a80f.jpg"
 RICH_UI_OK = False
 _rich_send = _rich_edit = None
 _rich_esc = _rich_heading = _rich_table = _rich_note = None
-_rich_details = None
 
 try:
     from NoxxNetwork.rich_ui_decoded import (
@@ -42,7 +35,6 @@ try:
         rich_heading as _rich_heading,
         rich_table as _rich_table,
         rich_note as _rich_note,
-        rich_details as _rich_details,
     )
     RICH_UI_OK = True
     LOGGER.info("[start] rich_ui loaded ✅")
@@ -85,7 +77,7 @@ def _rich_to_clean(html_text: str) -> str:
         for r in rows_html:
             cells = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', r, re.I | re.S)
             header_check = [re.sub(r'<[^>]+>', '', c).lower().strip() for c in cells]
-            if header_check and all(h in ('command', 'what it does', 'feature', 'details') for h in header_check):
+            if header_check and all(h in ('command', 'what it does', 'feature', 'details', 'category', 'about') for h in header_check):
                 continue
             if len(cells) == 2:
                 lines.append(f"  {cells[0].strip()}  →  {cells[1].strip()}")
@@ -176,11 +168,11 @@ CATEGORIES = {
         "rows": [
             ["/guess", "Catch the waifu in a group"],
             ["/grab /hunt /collect", "Aliases for /guess"],
-            ["/fav &lt;id&gt;", "Mark a character as favorite"],
+            ["/fav", "Mark a character as favorite"],
             ["/harem", "View your collection"],
             ["/profile", "View your profile card"],
-            ["/w &lt;id&gt;", "Look up a character"],
-            ["/find &lt;id&gt;", "See who owns a character"],
+            ["/w", "Look up a character"],
+            ["/find", "See who owns a character"],
             ["/wrarity", "Collection breakdown by rarity"],
         ],
     },
@@ -188,10 +180,10 @@ CATEGORIES = {
         "emoji": "🏪",
         "title": "MARKETPLACE",
         "rows": [
-            ["/market [search]", "Browse listings (search by name/id)"],
-            ["/sellwaifu &lt;id&gt; &lt;price&gt;", "List a waifu for sale"],
-            ["/wbuy &lt;listing_id&gt;", "Buy a listed waifu"],
-            ["/cancelsell &lt;listing_id&gt;", "Cancel your listing"],
+            ["/market", "Browse listings"],
+            ["/sellwaifu", "List a waifu for sale"],
+            ["/wbuy", "Buy a listed waifu"],
+            ["/cancelsell", "Cancel your listing"],
             ["/mylistings", "See your active listings"],
         ],
     },
@@ -199,17 +191,17 @@ CATEGORIES = {
         "emoji": "💌",
         "title": "TRADE & GIFT",
         "rows": [
-            ["/trade &lt;yours&gt; &lt;theirs&gt;", "Trade waifus (reply to user)"],
-            ["/gift &lt;id&gt;", "Gift a waifu (reply to user)"],
+            ["/trade", "Trade waifus (reply to user)"],
+            ["/gift", "Gift a waifu (reply to user)"],
         ],
     },
     "economy": {
         "emoji": "🪙",
         "title": "ECONOMY & COINS",
         "rows": [
-            ["/ball 🎳", "Play bowling, win Edollers"],
+            ["/ball", "Play bowling, win Edollers"],
             ["/wpocket", "Check balance & balls left"],
-            ["/wsend &lt;amount&gt;", "Send Edollers to a user"],
+            ["/wsend", "Send Edollers to a user"],
             ["/wtop", "Top Edollers holders"],
         ],
     },
@@ -217,14 +209,14 @@ CATEGORIES = {
         "emoji": "🎨",
         "title": "CUSTOMIZATION",
         "rows": [
-            ["/whmode", "Set harem mode (Default/Rarity/Char/Anime)"],
-            ["/whfav &lt;id&gt;", "Show only one character in harem"],
+            ["/whmode", "Set harem mode"],
+            ["/whfav", "Show only one char in harem"],
             ["/whstyle", "Change harem display style"],
         ],
     },
     "top": {
         "emoji": "🏆",
-        "title": "LEADERBOARDS & STATS",
+        "title": "LEADERBOARDS",
         "rows": [
             ["/top", "Top waifu collectors"],
             ["/ctop", "Chat leaderboard"],
@@ -236,7 +228,7 @@ CATEGORIES = {
         "emoji": "🎁",
         "title": "REDEEM CODES",
         "rows": [
-            ["/redeem &lt;code&gt;", "Redeem a code to get a character"],
+            ["/redeem", "Redeem a code to get a character"],
         ],
     },
 }
@@ -246,7 +238,6 @@ CATEGORIES = {
 # BUILDERS
 # ══════════════════════════════════════════════════════════════
 def _banner_url() -> str:
-    """Return the fixed banner URL (guaranteed to work)."""
     return BANNER_URL
 
 
@@ -265,66 +256,62 @@ def _mk_table(rows, headers=None):
     return "".join(parts)
 
 
+# ─── START (heading → image → blockquote → table → tip) ───────
 def build_start_html(first_name: str) -> str:
     banner = _banner_url()
     name = _esc(first_name or 'User')
 
     body = ""
+    # 1. Heading FIRST (required by Rich Message format)
+    body += f"<h2>🎐 WAIFU CATCHER</h2>"
+    # 2. Image second
     if banner:
         body += f'<img src="{_esc(banner)}" />'
-    body += f"<h2>HEY {name}, WELCOME ABOARD! 🎵</h2>"
+    # 3. Welcome
     body += (
-        "<blockquote>"
-        "I AM <b>WAIFU CATCHER</b> — A POWERFUL TELEGRAM BOT "
-        "THAT BRINGS ANIME WAIFUS TO YOUR GROUP. 🎴"
-        "</blockquote>"
+        f"<blockquote>Hey <b>{name}</b>, welcome! "
+        f"I bring anime waifus to your group. 🎴</blockquote>"
     )
-
+    # 4. Features table
     features = [
-        ["🎴 Catch",       "Spawn & grab waifus in groups"],
-        ["🏪 Marketplace", "Buy & sell characters for Edollers"],
-        ["🎁 Trade",       "Trade / gift waifus with friends"],
+        ["🎴 Catch",       "Spawn & grab waifus"],
+        ["🏪 Marketplace", "Buy & sell for Edollers"],
+        ["🎁 Trade",       "Trade / gift waifus"],
         ["🎳 /ball",       "Earn Edollers daily"],
-        ["🎨 Harem Mode",  "Filter & customize your harem"],
+        ["🎨 Harem Mode",  "Filter & customize"],
     ]
-    body += f"\n<h3>✨ KEY FEATURES ✨</h3>"
     body += _mk_table(features, headers=["Feature", "Details"])
-
-    body += f"\n<h3>⚡ WHY CHOOSE IT? ⚡</h3>"
-    body += (
-        "⭐ Simple slash commands, no setup needed.\n"
-        "🎯 Auto-catching, trade, marketplace & coin economy.\n"
-        "🎨 Fully customizable harem modes & styles.\n"
-        "🌐 Click <b>HELP</b> below for all commands."
-    )
-
-    body += "<blockquote>POWERED BY » <b>WAIFU CATCHER</b></blockquote>"
+    # 5. Tip
+    body += f"<blockquote>💡 <b>CLICK HELP</b> below for all commands.</blockquote>"
     return body
 
 
+# ─── HELP MENU (heading → image → blockquote → table → tip) ───
 def build_help_menu_html(first_name: str) -> str:
     banner = _banner_url()
     name = _esc(first_name or 'User')
 
     body = ""
+    body += f"<h2>📜 HELP CENTER</h2>"
     if banner:
         body += f'<img src="{_esc(banner)}" />'
-    body += "<h3>📜 CHOOSE A CATEGORY</h3>"
-    body += (
-        f"<blockquote>Hey {name}, pick a category below to see its commands.</blockquote>"
-    )
+    body += f"<blockquote>Hey <b>{name}</b>, pick a category below.</blockquote>"
 
-    info_rows = [
-        ["📋 Help Menu", "All commands can be used with: /"],
-        ["🎴 Categories", "Pick a category below"],
+    info = [
+        ["🌸 CATCH",   "Catch & collection"],
+        ["🏪 MARKET",  "Marketplace buy/sell"],
+        ["💌 TRADE",   "Trade & gift"],
+        ["🪙 ECONOMY", "Edollers & coins"],
+        ["🎨 STYLE",   "Customize harem"],
+        ["🏆 TOP",     "Leaderboards"],
+        ["🎁 REDEEM",  "Redeem codes"],
     ]
-    body += f"\n<h4>✨ HELP FEATURES ✨</h4>"
-    body += _mk_table(info_rows, headers=["Feature", "Details"])
-
-    body += "<blockquote>POWERED BY » <b>WAIFU CATCHER</b></blockquote>"
+    body += _mk_table(info, headers=["Category", "About"])
+    body += f"<blockquote>✨ Pick a category from the buttons below.</blockquote>"
     return body
 
 
+# ─── CATEGORY VIEW ────────────────────────────────────────────
 def build_category_html(cat_key: str, first_name: str) -> str:
     cat = CATEGORIES.get(cat_key)
     if not cat:
@@ -336,13 +323,10 @@ def build_category_html(cat_key: str, first_name: str) -> str:
     rows = cat["rows"]
     table = _mk_table(rows)
 
-    body = (
-        f"<h3>{emoji} {title}</h3>"
-        f"<blockquote>Hey {name}, here are all commands in this category.</blockquote>"
-    )
-    body += f"\n<h4>📋 COMMANDS</h4>"
+    body = f"<h2>{emoji} {title}</h2>"
+    body += f"<blockquote>Hey <b>{name}</b>, all commands in this category.</blockquote>"
     body += table
-    body += "<blockquote>🔙 Use the buttons below to navigate.</blockquote>"
+    body += f"<blockquote>🔙 Use buttons below to navigate.</blockquote>"
     return body
 
 
@@ -425,7 +409,7 @@ async def start(update: Update, context: CallbackContext) -> None:
 
     html_text = (
         f"<h3>🎴 WAIFU CATCHER</h3>"
-        f"<blockquote>Alive! Connect to me in PM for more information.</blockquote>"
+        f"<blockquote>Alive! Connect to me in PM.</blockquote>"
     )
     await _send_rich(update, html_text, kb=_start_kb())
 
