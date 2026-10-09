@@ -453,6 +453,9 @@ async def runner() -> None:
     await _ensure_indexes()
 
     # ── Start Waifuu (Pyrogram) for rich UI ─────────────────────
+    # ⚠️ Use `connect()` instead of `start()` — `start()` also starts
+    #    the Pyrogram dispatcher which calls getUpdates, causing a
+    #    Conflict with PTB's polling (same bot token).
     try:
         from NoxxNetwork import Waifuu
     except Exception:
@@ -460,11 +463,11 @@ async def runner() -> None:
 
     if Waifuu is not None:
         try:
-            await Waifuu.start()
+            await Waifuu.connect()
             me = await Waifuu.get_me()
-            LOGGER.info(f"Waifuu (Pyrogram) started ✅ — @{me.username}")
+            LOGGER.info(f"Waifuu (Pyrogram) connected ✅ — @{me.username}")
         except Exception as e:
-            LOGGER.error(f"Waifuu (Pyrogram) failed to start: {e}")
+            LOGGER.error(f"Waifuu (Pyrogram) failed to connect: {e}")
     else:
         LOGGER.warning("Waifuu (Pyrogram) client not available")
 
