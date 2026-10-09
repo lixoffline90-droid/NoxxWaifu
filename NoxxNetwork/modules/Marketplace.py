@@ -1,5 +1,5 @@
 """
-Waifu Marketplace — Rich UI with direct send + ASCII fallback
+Waifu Marketplace — Rich UI with clean fallback
 Commands:
     /market [search]        - browse/search listings (10/page)
     /marketplace [search]   - alias
@@ -61,7 +61,7 @@ async def get_balance(user_id: int) -> int:
 
 
 # ══════════════════════════════════════════════════════════════
-# RICH UI (optional import — we call Waifuu directly anyway)
+# RICH UI IMPORT
 # ══════════════════════════════════════════════════════════════
 RICH_UI_OK = False
 _rich_esc = _rich_heading = _rich_table = _rich_note = _rich_code = None
@@ -147,61 +147,106 @@ def rich_code(v):
 
 
 def rich_table(headers, rows, border=1):
-    """Return rich table HTML if available, else ASCII wrapped in <pre>."""
+    """If rich UI available → real rich table. Else → return clean <table>
+    which will be converted to key:value lines by _rich_to_clean()."""
     if RICH_UI_OK and _rich_table:
         try:
             return _rich_table(headers, rows, border=border)
         except Exception as e:
             LOGGER.warning(f"[marketplace] rich_table failed: {e}")
-    return _build_ascii_table(headers, rows)
+    # Fallback: emit clean HTML table (gets converted to lines on send)
+    parts = ['<table border="1">']
+    parts.append("<tr>" + "".join(f"<th>{h}</th>" for h in headers) + "</tr>")
+    for r in rows:
+        parts.append("<tr>" + "".join(
+            f"<td>{c if c is not None else ''}</td>" for c in r
+        ) + "</tr>")
+    parts.append("</table>")
+    return "".join(parts)
 
 
 # ══════════════════════════════════════════════════════════════
-# ASCII TABLE
+# CLEAN FALLBACK — table → key:value lines
 # ══════════════════════════════════════════════════════════════
-def _display_width(s: str) -> int:
-    width = 0
-    for ch in str(s):
-        cp = ord(ch)
-        if (0x1F300 <= cp <= 0x1FAFF or
-                0x2600 <= cp <= 0x27BF or
-                0x1F000 <= cp <= 0x1F2FF or
-                0x2190 <= cp <= 0x21FF):
-            width += 2
-        else:
-            width += 1
-    return width
+_TABLE_RE = _re.compile(r'<table[^>]*>(.*?)</table>', _re.I | _re.S)
+_ROW_RE = _re.compile(r'<tr[^>]*>(.*?)</tr>', _re.I | _re.S)
+_CELL_RE = _re.compile(r'<t[dh][^>]*>(.*?)</t[dh]>', _re.I | _re.S)
 
 
 def _strip_html(s: str) -> str:
     return _re.sub(r'<[^>]+>', '', str(s))
 
 
-def _build_ascii_table(headers, rows) -> str:
-    headers = [_strip_html(h) for h in headers]
-    rows = [[_strip_html(c) if c is not None else "" for c in r] for r in rows]
+def _render_table_as_lines(rows):
+    """Convert 2-column table rows → clean aligned lines.
+    For >2 columns → numbered list.
+    """
+    if not rows:
+        return ""
 
-    widths = [_display_width(h) for h in headers]
-    for row in rows:
-        for i, cell in enumerate(row):
-            if i < len(widths):
-                widths[i] = max(widths[i], _display_width(cell))
+    # Detect header row (Field/Value/Metric/Listing/etc)
+    first = [c.lower().strip() for c in rows[0]]
+    is_kv = len(rows[0]) == 2 and first in (
+        ['field', 'value'], ['metric', 'value'], ['listing', 'value'],
+        ['key', 'value'], ['item', 'value'],
+    )
+    data_rows = rows[1:] if is_kv else rows
 
-    def _pad(cell, w):
-        pad = w - _display_width(cell)
-        return str(cell) + " " * max(0, pad)
+    if len(rows[0]) == 2:
+        # Key : Value lines
+        lines = []
+        for r in data_rows:
+            if len(r) < 2:
+                continue
+            k = str(r[0]).strip()
+            v = str(r[1]).strip()
+            if not k and not v:
+                continue
+            lines.append(f"{k} : <b>{v}</b>")
+        return "\n".join(lines)
 
+    # >2 columns → numbered list
     lines = []
-    lines.append("┌" + "┬".join("─" * (w + 2) for w in widths) + "┐")
-    lines.append("│" + "│".join(f" {_pad(h, widths[i])} " for i, h in enumerate(headers)) + "│")
-    lines.append("├" + "┼".join("─" * (w + 2) for w in widths) + "┤")
-    for row in rows:
-        padded = [f" {_pad(row[i] if i < len(row) else '', widths[i])} " for i in range(len(widths))]
-        lines.append("│" + "│".join(padded) + "│")
-    lines.append("└" + "┴".join("─" * (w + 2) for w in widths) + "┘")
+    for i, r in enumerate(data_rows, 1):
+        cells = [str(c).strip() for c in r if c]
+        if not cells:
+            continue
+        lines.append(f"{i}. " + " • ".join(cells))
+    return "\n".join(lines)
 
-    table = "\n".join(lines)
-    return f"<pre>{_html.escape(table, quote=False)}</pre>"
+
+def _rich_to_clean(html: str) -> str:
+    """Convert rich HTML → clean plain HTML (no ASCII tables, no pipes)."""
+    t = str(html)
+
+    def _replace_table(m):
+        body = m.group(1)
+        parsed_rows = []
+        for r in _ROW_RE.findall(body):
+            cells = _CELL_RE.findall(r)
+            parsed_rows.append([c.strip() for c in cells])
+        if not parsed_rows:
+            return ""
+        return "\n" + _render_table_as_lines(parsed_rows) + "\n"
+
+    t = _TABLE_RE.sub(_replace_table, t)
+
+    # Remove <img>
+    t = _re.sub(r'<img\b[^>]*/?>', '', t, flags=_re.I)
+
+    # Headings → bold lines
+    t = _re.sub(r'<h[1-6][^>]*>(.*?)</h[1-6]>', r'\n<b>\1</b>\n', t, flags=_re.I | _re.S)
+
+    # Blockquote → content only
+    t = _re.sub(r'<blockquote[^>]*>(.*?)</blockquote>', r'\n\1\n', t, flags=_re.I | _re.S)
+
+    # Safety strip
+    t = _re.sub(r'</?(?:table|thead|tbody|tr|th|td)[^>]*>', '', t, flags=_re.I)
+
+    t = _re.sub(r'<br\s*/?>', '\n', t, flags=_re.I)
+    t = _re.sub(r'[ \t]+\n', '\n', t)
+    t = _re.sub(r'\n{3,}', '\n\n', t)
+    return t.strip()
 
 
 # ══════════════════════════════════════════════════════════════
@@ -386,60 +431,13 @@ async def _recover_stuck_processings():
 
 
 # ══════════════════════════════════════════════════════════════
-# RICH HTML → PRETTY ASCII CONVERTER (for fallback)
-# ══════════════════════════════════════════════════════════════
-_TABLE_RE = _re.compile(r'<table[^>]*>(.*?)</table>', _re.I | _re.S)
-_ROW_RE = _re.compile(r'<tr[^>]*>(.*?)</tr>', _re.I | _re.S)
-_CELL_RE = _re.compile(r'<t[dh][^>]*>(.*?)</t[dh]>', _re.I | _re.S)
-
-
-def _rich_to_ascii(html: str) -> str:
-    """Convert rich HTML → plain HTML with proper ASCII tables (no pipes)."""
-    t = str(html)
-
-    def _replace_table(m):
-        body = m.group(1)
-        rows_raw = _ROW_RE.findall(body)
-        parsed_rows = []
-        for r in rows_raw:
-            cells = _CELL_RE.findall(r)
-            parsed_rows.append([_strip_html(c) for c in cells])
-        if not parsed_rows:
-            return ""
-        headers = parsed_rows[0]
-        data_rows = parsed_rows[1:]
-        return "\n" + _build_ascii_table(headers, data_rows) + "\n"
-
-    t = _TABLE_RE.sub(_replace_table, t)
-
-    # Remove <img>
-    t = _re.sub(r'<img\b[^>]*/?>', '', t, flags=_re.I)
-
-    # Headings → bold
-    t = _re.sub(r'<h[1-6][^>]*>(.*?)</h[1-6]>', r'\n<b>\1</b>\n', t, flags=_re.I | _re.S)
-
-    # blockquote → content only
-    t = _re.sub(r'<blockquote[^>]*>(.*?)</blockquote>', r'\n\1\n', t, flags=_re.I | _re.S)
-
-    # Safety: strip any remaining table tags
-    t = _re.sub(r'</?(?:table|thead|tbody|tr|th|td)[^>]*>', '', t, flags=_re.I)
-
-    t = _re.sub(r'<br\s*/?>', '\n', t, flags=_re.I)
-    t = _re.sub(r'[ \t]+\n', '\n', t)
-    t = _re.sub(r'\n{3,}', '\n\n', t)
-    return t.strip()
-
-
-# ══════════════════════════════════════════════════════════════
-# DIRECT RICH SEND (bypass rich_ui wrapper bugs)
+# DIRECT RICH SEND
 # ══════════════════════════════════════════════════════════════
 async def _direct_rich_send(chat_id, html: str, kb=None):
-    """Call Waifuu.send_rich_message directly with full error surfacing."""
     if _Waifuu is None:
-        LOGGER.warning("[rich] Waifuu client not available")
         return None
     if not hasattr(_Waifuu, 'send_rich_message'):
-        LOGGER.warning("[rich] Waifuu.send_rich_message not available (old Kurigram?)")
+        LOGGER.warning("[rich] Waifuu.send_rich_message not available")
         return None
     if _input_rich is None:
         LOGGER.warning("[rich] _input_rich not imported")
@@ -465,18 +463,15 @@ async def _direct_rich_send(chat_id, html: str, kb=None):
 
 
 async def _direct_rich_edit(chat_id, message_id, html: str, kb=None):
-    """Direct rich edit via Waifuu."""
     if _Waifuu is None:
         return None
     if _input_rich is None:
         return None
-
     try:
         rich_msg = _input_rich(html)
     except Exception as e:
         LOGGER.error(f"[rich] _input_rich() failed: {type(e).__name__}: {e!r}")
         return None
-
     try:
         result = await _Waifuu.edit_message_text(
             chat_id=chat_id,
@@ -489,7 +484,7 @@ async def _direct_rich_edit(chat_id, message_id, html: str, kb=None):
     except Exception as e:
         err = str(e).lower()
         if "not modified" in err:
-            return True  # treat as success
+            return True
         LOGGER.error(f"[rich] edit_message_text FAILED: {type(e).__name__}: {e!r}")
         return None
 
@@ -507,10 +502,10 @@ async def _send(update, html: str, *, kb=None, with_image: bool = False):
         result = await _direct_rich_send(chat.id, html, kb)
         if result:
             return result
-        LOGGER.warning("[marketplace] rich failed → ASCII fallback")
+        LOGGER.warning("[marketplace] rich failed → clean fallback")
 
-    # 2️⃣ Pretty ASCII fallback (no ugly pipes)
-    plain = _rich_to_ascii(html)
+    # 2️⃣ Clean fallback
+    plain = _rich_to_clean(html)
     try:
         return await update.message.reply_text(
             plain, reply_markup=kb, parse_mode='HTML',
@@ -518,7 +513,6 @@ async def _send(update, html: str, *, kb=None, with_image: bool = False):
     except Exception as e:
         LOGGER.error(f"[marketplace] PTB fallback failed: {e!r}")
 
-    # 3️⃣ Photo-only
     if with_image and MARKET_IMG_URL:
         try:
             await update.message.reply_photo(photo=MARKET_IMG_URL)
@@ -531,15 +525,13 @@ async def _edit(query, html: str, *, kb=None):
     chat_id = query.message.chat.id
     message_id = query.message.message_id
 
-    # 1️⃣ Direct rich edit
     if RICH_UI_OK and PYRO_OK:
         result = await _direct_rich_edit(chat_id, message_id, html, kb)
         if result:
             return result
-        LOGGER.warning("[marketplace] rich edit failed → ASCII fallback")
+        LOGGER.warning("[marketplace] rich edit failed → clean fallback")
 
-    # 2️⃣ Pretty ASCII fallback
-    plain = _rich_to_ascii(html)
+    plain = _rich_to_clean(html)
     try:
         await query.edit_message_text(plain, reply_markup=kb, parse_mode='HTML')
     except BadRequest:
@@ -650,7 +642,7 @@ async def market(update: Update, context: CallbackContext):
 
 
 # ══════════════════════════════════════════════════════════════
-# /sellwaifu — Rich table confirmation
+# /sellwaifu
 # ══════════════════════════════════════════════════════════════
 async def sellwaifu(update: Update, context: CallbackContext):
     try:
@@ -711,12 +703,12 @@ async def sellwaifu(update: Update, context: CallbackContext):
             + rich_table(
                 ["Field", "Value"],
                 [
-                    ["🌸 Name", f"<b>{rich_esc(snap['name'])}</b>"],
-                    ["⭐ Rarity", f"{rar} <b>{rich_esc(snap['rarity'])}</b>"],
+                    ["🌸 Name", f"{rich_esc(snap['name'])}"],
+                    ["⭐ Rarity", f"{rar} {rich_esc(snap['rarity'])}"],
                     ["🆔 Char ID", rich_code(snap['id'])],
-                    ["💰 Price", f"<b>{_fmt(price)}</b>"],
-                    ["🏦 Tax (5%)", f"<b>{_fmt(tax)}</b>"],
-                    ["💵 You receive", f"<b>{_fmt(gets)}</b>"],
+                    ["💰 Price", f"{_fmt(price)}"],
+                    ["🏦 Tax (5%)", f"{_fmt(tax)}"],
+                    ["💵 You receive", f"{_fmt(gets)}"],
                 ],
                 border=1,
             )
@@ -733,7 +725,7 @@ async def sellwaifu(update: Update, context: CallbackContext):
 
 
 # ══════════════════════════════════════════════════════════════
-# /wbuy — Rich table confirmation
+# /wbuy
 # ══════════════════════════════════════════════════════════════
 async def wbuy(update: Update, context: CallbackContext):
     try:
@@ -786,12 +778,12 @@ async def wbuy(update: Update, context: CallbackContext):
             + rich_table(
                 ["Field", "Value"],
                 [
-                    ["🌸 Waifu", f"<b>{rich_esc(listing['waifu_name'])}</b>"],
-                    ["⭐ Rarity", f"{rar} <b>{rich_esc(listing['waifu_rarity'])}</b>"],
+                    ["🌸 Waifu", f"{rich_esc(listing['waifu_name'])}"],
+                    ["⭐ Rarity", f"{rar} {rich_esc(listing['waifu_rarity'])}"],
                     ["🆔 Char ID", rich_code(listing['waifu_id'])],
-                    ["💰 Price", f"<b>{_fmt(price)}</b>"],
-                    ["💳 Your balance", f"<b>{_fmt(bal)}</b>"],
-                    ["💵 After purchase", f"<b>{_fmt(bal - price)}</b>"],
+                    ["💰 Price", f"{_fmt(price)}"],
+                    ["💳 Your balance", f"{_fmt(bal)}"],
+                    ["💵 After purchase", f"{_fmt(bal - price)}"],
                 ],
                 border=1,
             )
@@ -894,17 +886,16 @@ async def _exec_sell(query, user_id: int, params: dict):
             ["Field", "Value"],
             [
                 ["🆔 Listing", f"<code>{listing_id}</code>"],
-                ["🌸 Name", rich_esc(snap['name'])],
-                ["💰 Price", f"<b>{_fmt(price)}</b>"],
-                ["🏦 Tax (5%)", f"<b>{_fmt(tax)}</b>"],
-                ["💵 You receive", f"<b>{_fmt(price - tax)}</b>"],
+                ["🌸 Name", f"{rich_esc(snap['name'])}"],
+                ["💰 Price", f"{_fmt(price)}"],
+                ["🏦 Tax (5%)", f"{_fmt(tax)}"],
+                ["💵 You receive", f"{_fmt(price - tax)}"],
             ],
             border=1,
         )
         + rich_note("⏳ Waiting for a buyer...")
     )
 
-    # Try rich edit first
     try:
         if RICH_UI_OK and PYRO_OK:
             result = await _direct_rich_edit(
@@ -912,7 +903,7 @@ async def _exec_sell(query, user_id: int, params: dict):
             )
             if result:
                 return
-        await query.edit_message_text(_rich_to_ascii(body), parse_mode='HTML')
+        await query.edit_message_text(_rich_to_clean(body), parse_mode='HTML')
     except Exception:
         pass
 
@@ -1082,16 +1073,15 @@ async def _exec_buy(query, buyer_id: int, params: dict):
 
     LOGGER.info(f"[buy] SUCCESS {lid} txn={txn_id}")
 
-    # Success message with rich table
     body = (
         rich_heading("✅ PURCHASE COMPLETE", 2)
         + rich_table(
             ["Field", "Value"],
             [
-                ["🌸 Waifu", f"<b>{rich_esc(listing.get('waifu_name', ''))}</b>"],
+                ["🌸 Waifu", f"{rich_esc(listing.get('waifu_name', ''))}"],
                 ["🆔 Char ID", f"<code>{_esc(waifu_id)}</code>"],
-                ["💰 Paid", f"<b>{_fmt(price)}</b>"],
-                ["💵 New balance", f"<b>{_fmt(bal - price)}</b>"],
+                ["💰 Paid", f"{_fmt(price)}"],
+                ["💵 New balance", f"{_fmt(bal - price)}"],
                 ["📜 Txn ID", f"<code>{txn_id}</code>"],
             ],
             border=1,
@@ -1105,9 +1095,9 @@ async def _exec_buy(query, buyer_id: int, params: dict):
                 query.message.chat.id, query.message.message_id, body, None
             )
             if not result:
-                await query.edit_message_text(_rich_to_ascii(body), parse_mode='HTML')
+                await query.edit_message_text(_rich_to_clean(body), parse_mode='HTML')
         else:
-            await query.edit_message_text(_rich_to_ascii(body), parse_mode='HTML')
+            await query.edit_message_text(_rich_to_clean(body), parse_mode='HTML')
     except Exception:
         pass
 
@@ -1124,11 +1114,11 @@ async def _exec_buy(query, buyer_id: int, params: dict):
             + rich_table(
                 ["Field", "Value"],
                 [
-                    ["🌸 Waifu", f"<b>{rich_esc(listing.get('waifu_name', ''))}</b>"],
+                    ["🌸 Waifu", f"{rich_esc(listing.get('waifu_name', ''))}"],
                     ["🆔 Char ID", f"<code>{_esc(waifu_id)}</code>"],
-                    ["💰 Sold for", f"<b>{_fmt(price)}</b>"],
-                    ["🏦 Tax (5%)", f"<b>{_fmt(tax)}</b>"],
-                    ["💵 You received", f"<b>{_fmt(gets)} Edollers</b>"],
+                    ["💰 Sold for", f"{_fmt(price)}"],
+                    ["🏦 Tax (5%)", f"{_fmt(tax)}"],
+                    ["💵 You received", f"{_fmt(gets)} Edollers"],
                     ["👤 Buyer", buyer_mention],
                     ["📜 Txn ID", f"<code>{txn_id}</code>"],
                 ],
@@ -1136,7 +1126,6 @@ async def _exec_buy(query, buyer_id: int, params: dict):
             )
         )
 
-        # Try direct rich first
         sent = False
         if RICH_UI_OK and PYRO_OK:
             result = await _direct_rich_send(seller_id, seller_body, None)
@@ -1146,7 +1135,7 @@ async def _exec_buy(query, buyer_id: int, params: dict):
         if not sent:
             await application.bot.send_message(
                 chat_id=seller_id,
-                text=_rich_to_ascii(seller_body),
+                text=_rich_to_clean(seller_body),
                 parse_mode='HTML',
             )
         LOGGER.info(f"[buy] seller DM sent to {seller_id}")
@@ -1191,9 +1180,9 @@ async def cancelsell(update: Update, context: CallbackContext):
                 ["Field", "Value"],
                 [
                     ["🆔 Listing", f"<code>{lid}</code>"],
-                    ["🌸 Waifu", rich_esc(listing.get('waifu_name', ''))],
-                    ["💰 Price", f"<b>{_fmt(listing.get('price', 0))}</b>"],
-                    ["🔓 Status", "<b>Unlocked</b>"],
+                    ["🌸 Waifu", f"{rich_esc(listing.get('waifu_name', ''))}"],
+                    ["💰 Price", f"{_fmt(listing.get('price', 0))}"],
+                    ["🔓 Status", "Unlocked"],
                 ],
                 border=1,
             )
@@ -1286,13 +1275,13 @@ async def marketstats(update: Update, context: CallbackContext):
             + rich_table(
                 ["Metric", "Value"],
                 [
-                    ["🟢 Active", f"<b>{active}</b>"],
-                    ["✅ Sold", f"<b>{sold}</b>"],
-                    ["❌ Cancelled", f"<b>{cancelled}</b>"],
-                    ["⏳ Processing", f"<b>{processing}</b>"],
-                    ["⚠️ Failed", f"<b>{failed}</b>"],
-                    ["📜 Txns", f"<b>{txns}</b>"],
-                    ["💰 Tax pot", f"<b>{_fmt(pot)}</b>"],
+                    ["🟢 Active", f"{active}"],
+                    ["✅ Sold", f"{sold}"],
+                    ["❌ Cancelled", f"{cancelled}"],
+                    ["⏳ Processing", f"{processing}"],
+                    ["⚠️ Failed", f"{failed}"],
+                    ["📜 Txns", f"{txns}"],
+                    ["💰 Tax pot", f"{_fmt(pot)}"],
                 ],
                 border=1,
             )
