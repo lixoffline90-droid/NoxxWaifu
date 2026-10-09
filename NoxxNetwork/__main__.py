@@ -452,9 +452,10 @@ async def runner() -> None:
     register_handlers()
     await _ensure_indexes()
 
-    # ── Pyrogram: connect only (NOT start) ──────────────────────
-    # • start() also spawns the dispatcher → calls getUpdates → Conflict with PTB.
-    # • connect() establishes the client without touching updates.
+    # ── Pyrogram: start() with no_updates=True ─────────────────
+    # • start() authorizes the bot (needed for get_me / send_rich_message)
+    # • no_updates=True prevents the dispatcher from polling getUpdates
+    #   → no Conflict with PTB
     try:
         from NoxxNetwork import Waifuu
     except Exception:
@@ -462,11 +463,11 @@ async def runner() -> None:
 
     if Waifuu is not None:
         try:
-            await Waifuu.connect()
+            await Waifuu.start()
             me = await Waifuu.get_me()
-            LOGGER.info(f"Waifuu (Pyrogram) connected ✅ — @{me.username}")
+            LOGGER.info(f"Waifuu (Pyrogram) started ✅ — @{me.username}")
         except Exception as e:
-            LOGGER.error(f"Waifuu (Pyrogram) failed to connect: {e}")
+            LOGGER.error(f"Waifuu (Pyrogram) failed to start: {e}")
     else:
         LOGGER.warning("Waifuu (Pyrogram) client not available")
 
