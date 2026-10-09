@@ -1,5 +1,5 @@
 """
-Waifu Marketplace — Secure Rich UI
+Waifu Marketplace — Rich UI with direct send + ASCII fallback
 Commands:
     /market [search]        - browse/search listings (10/page)
     /marketplace [search]   - alias
@@ -61,21 +61,20 @@ async def get_balance(user_id: int) -> int:
 
 
 # ══════════════════════════════════════════════════════════════
-# RICH UI
+# RICH UI (optional import — we call Waifuu directly anyway)
 # ══════════════════════════════════════════════════════════════
 RICH_UI_OK = False
-_rich_send = _rich_edit = None
 _rich_esc = _rich_heading = _rich_table = _rich_note = _rich_code = None
+_input_rich = None
 
 try:
     from NoxxNetwork.rich_ui_decoded import (
-        rich_send as _rich_send,
-        rich_edit as _rich_edit,
         rich_esc as _rich_esc,
         rich_heading as _rich_heading,
         rich_table as _rich_table,
         rich_note as _rich_note,
         rich_code as _rich_code,
+        _input_rich as _input_rich,
     )
     RICH_UI_OK = True
     LOGGER.info("[marketplace] rich_ui loaded ✅")
@@ -91,7 +90,7 @@ PYRO_OK = _Waifuu is not None
 
 
 # ══════════════════════════════════════════════════════════════
-# FALLBACK HELPERS
+# HELPERS
 # ══════════════════════════════════════════════════════════════
 def _esc(v) -> str:
     if v is None:
@@ -148,17 +147,17 @@ def rich_code(v):
 
 
 def rich_table(headers, rows, border=1):
+    """Return rich table HTML if available, else ASCII wrapped in <pre>."""
     if RICH_UI_OK and _rich_table:
         try:
             return _rich_table(headers, rows, border=border)
         except Exception as e:
             LOGGER.warning(f"[marketplace] rich_table failed: {e}")
-    # Fallback: ASCII table wrapped in <pre>
     return _build_ascii_table(headers, rows)
 
 
 # ══════════════════════════════════════════════════════════════
-# ASCII TABLE (for fallback)
+# ASCII TABLE
 # ══════════════════════════════════════════════════════════════
 def _display_width(s: str) -> int:
     width = 0
@@ -281,20 +280,16 @@ async def ensure_indexes():
         await marketplace_col.create_index([('status', 1), ('created_at', -1)])
         await marketplace_col.create_index([('status', 1), ('waifu_name', 1)])
 
-        # Global unique — ek waifu_id ki ek hi ACTIVE listing
         try:
             await marketplace_col.create_index(
-                'waifu_id',
-                unique=True,
+                'waifu_id', unique=True,
                 partialFilterExpression={'status': 'ACTIVE'},
                 name='uniq_active_waifu',
             )
-            LOGGER.info("[marketplace] global unique index created")
         except Exception as e:
-            LOGGER.warning(f"[marketplace] unique index failed: {e}")
+            LOGGER.warning(f"[marketplace] unique index: {e}")
 
         await market_locks_col.create_index([('seller_id', 1), ('waifu_id', 1)], unique=True)
-        await market_locks_col.create_index('listing_id')
         await market_pending_col.create_index('token', unique=True)
         await market_txn_col.create_index('transaction_id', unique=True)
         LOGGER.info("[marketplace] indexes ensured")
@@ -391,36 +386,112 @@ async def _recover_stuck_processings():
 
 
 # ══════════════════════════════════════════════════════════════
-# PLAIN FALLBACK (better: convert table cells to pipes)
+# RICH HTML → PRETTY ASCII CONVERTER (for fallback)
 # ══════════════════════════════════════════════════════════════
-def _plain_fallback(html: str) -> str:
-    """Convert rich HTML to plain-ish HTML for PTB fallback.
+_TABLE_RE = _re.compile(r'<table[^>]*>(.*?)</table>', _re.I | _re.S)
+_ROW_RE = _re.compile(r'<tr[^>]*>(.*?)</tr>', _re.I | _re.S)
+_CELL_RE = _re.compile(r'<t[dh][^>]*>(.*?)</t[dh]>', _re.I | _re.S)
 
-    Important: convert <td>/<th> boundaries to ' | ' and rows to newlines,
-    so table content doesn't collapse into a single blob.
-    """
+
+def _rich_to_ascii(html: str) -> str:
+    """Convert rich HTML → plain HTML with proper ASCII tables (no pipes)."""
     t = str(html)
 
-    # Remove inline <img>
+    def _replace_table(m):
+        body = m.group(1)
+        rows_raw = _ROW_RE.findall(body)
+        parsed_rows = []
+        for r in rows_raw:
+            cells = _CELL_RE.findall(r)
+            parsed_rows.append([_strip_html(c) for c in cells])
+        if not parsed_rows:
+            return ""
+        headers = parsed_rows[0]
+        data_rows = parsed_rows[1:]
+        return "\n" + _build_ascii_table(headers, data_rows) + "\n"
+
+    t = _TABLE_RE.sub(_replace_table, t)
+
+    # Remove <img>
     t = _re.sub(r'<img\b[^>]*/?>', '', t, flags=_re.I)
 
-    # Cell separator
-    t = _re.sub(r'</t[dh]>', ' | ', t, flags=_re.I)
-    # Row boundaries → newline
-    t = _re.sub(r'</tr>', '\n', t, flags=_re.I)
-    # Table/headings/etc → drop
-    t = _re.sub(
-        r'</?(?:h[1-6]|table|thead|tbody|tr|th|td|details|summary|mark|sub|sup|tg-button|button)(?:\s[^>]*)?>',
-        '', t, flags=_re.I,
-    )
-    # Clean trailing pipes
-    t = _re.sub(r'\s*\|\s*\n', '\n', t)
-    t = _re.sub(r'\|\s*$', '', t, flags=_re.M)
-    t = _re.sub(r'(?:\s*\|\s*){3,}', ' | ', t)
+    # Headings → bold
+    t = _re.sub(r'<h[1-6][^>]*>(.*?)</h[1-6]>', r'\n<b>\1</b>\n', t, flags=_re.I | _re.S)
+
+    # blockquote → content only
+    t = _re.sub(r'<blockquote[^>]*>(.*?)</blockquote>', r'\n\1\n', t, flags=_re.I | _re.S)
+
+    # Safety: strip any remaining table tags
+    t = _re.sub(r'</?(?:table|thead|tbody|tr|th|td)[^>]*>', '', t, flags=_re.I)
 
     t = _re.sub(r'<br\s*/?>', '\n', t, flags=_re.I)
+    t = _re.sub(r'[ \t]+\n', '\n', t)
     t = _re.sub(r'\n{3,}', '\n\n', t)
     return t.strip()
+
+
+# ══════════════════════════════════════════════════════════════
+# DIRECT RICH SEND (bypass rich_ui wrapper bugs)
+# ══════════════════════════════════════════════════════════════
+async def _direct_rich_send(chat_id, html: str, kb=None):
+    """Call Waifuu.send_rich_message directly with full error surfacing."""
+    if _Waifuu is None:
+        LOGGER.warning("[rich] Waifuu client not available")
+        return None
+    if not hasattr(_Waifuu, 'send_rich_message'):
+        LOGGER.warning("[rich] Waifuu.send_rich_message not available (old Kurigram?)")
+        return None
+    if _input_rich is None:
+        LOGGER.warning("[rich] _input_rich not imported")
+        return None
+
+    try:
+        rich_msg = _input_rich(html)
+    except Exception as e:
+        LOGGER.error(f"[rich] _input_rich() failed: {type(e).__name__}: {e!r}")
+        return None
+
+    try:
+        result = await _Waifuu.send_rich_message(
+            chat_id=chat_id,
+            rich_message=rich_msg,
+            reply_markup=kb,
+        )
+        LOGGER.info("[rich] send_rich_message OK")
+        return result
+    except Exception as e:
+        LOGGER.error(f"[rich] send_rich_message FAILED: {type(e).__name__}: {e!r}")
+        return None
+
+
+async def _direct_rich_edit(chat_id, message_id, html: str, kb=None):
+    """Direct rich edit via Waifuu."""
+    if _Waifuu is None:
+        return None
+    if _input_rich is None:
+        return None
+
+    try:
+        rich_msg = _input_rich(html)
+    except Exception as e:
+        LOGGER.error(f"[rich] _input_rich() failed: {type(e).__name__}: {e!r}")
+        return None
+
+    try:
+        result = await _Waifuu.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            rich_message=rich_msg,
+            reply_markup=kb,
+        )
+        LOGGER.info("[rich] edit_message_text OK")
+        return result
+    except Exception as e:
+        err = str(e).lower()
+        if "not modified" in err:
+            return True  # treat as success
+        LOGGER.error(f"[rich] edit_message_text FAILED: {type(e).__name__}: {e!r}")
+        return None
 
 
 # ══════════════════════════════════════════════════════════════
@@ -431,26 +502,23 @@ async def _send(update, html: str, *, kb=None, with_image: bool = False):
     if not chat:
         return None
 
-    # 1. Rich send (preferred)
-    if RICH_UI_OK and PYRO_OK and _rich_send is not None:
-        try:
-            result = await _rich_send(_Waifuu, chat.id, html, reply_markup=kb)
-            if result:
-                return result
-            LOGGER.warning("[marketplace] rich send returned None")
-        except Exception as e:
-            LOGGER.warning(f"[marketplace] rich send exception: {e}")
+    # 1️⃣ Direct rich send
+    if RICH_UI_OK and PYRO_OK:
+        result = await _direct_rich_send(chat.id, html, kb)
+        if result:
+            return result
+        LOGGER.warning("[marketplace] rich failed → ASCII fallback")
 
-    # 2. PTB fallback
-    plain = _plain_fallback(html)
+    # 2️⃣ Pretty ASCII fallback (no ugly pipes)
+    plain = _rich_to_ascii(html)
     try:
         return await update.message.reply_text(
             plain, reply_markup=kb, parse_mode='HTML',
         )
     except Exception as e:
-        LOGGER.error(f"[marketplace] PTB text failed: {e}")
+        LOGGER.error(f"[marketplace] PTB fallback failed: {e!r}")
 
-    # 3. Photo fallback
+    # 3️⃣ Photo-only
     if with_image and MARKET_IMG_URL:
         try:
             await update.message.reply_photo(photo=MARKET_IMG_URL)
@@ -460,36 +528,34 @@ async def _send(update, html: str, *, kb=None, with_image: bool = False):
 
 
 async def _edit(query, html: str, *, kb=None):
-    if RICH_UI_OK and PYRO_OK and _rich_edit is not None:
-        try:
-            result = await _rich_edit(
-                _Waifuu, html,
-                chat_id=query.message.chat.id,
-                message_id=query.message.message_id,
-                reply_markup=kb,
-            )
-            if result:
-                return result
-        except Exception as e:
-            LOGGER.warning(f"[marketplace] rich edit failed: {e}")
+    chat_id = query.message.chat.id
+    message_id = query.message.message_id
 
+    # 1️⃣ Direct rich edit
+    if RICH_UI_OK and PYRO_OK:
+        result = await _direct_rich_edit(chat_id, message_id, html, kb)
+        if result:
+            return result
+        LOGGER.warning("[marketplace] rich edit failed → ASCII fallback")
+
+    # 2️⃣ Pretty ASCII fallback
+    plain = _rich_to_ascii(html)
     try:
-        await query.edit_message_text(
-            _plain_fallback(html), reply_markup=kb, parse_mode='HTML'
-        )
+        await query.edit_message_text(plain, reply_markup=kb, parse_mode='HTML')
     except BadRequest:
         pass
+    except Exception as e:
+        LOGGER.warning(f"[marketplace] edit fallback failed: {e!r}")
 
 
 # ══════════════════════════════════════════════════════════════
-# SEARCH FILTER
+# SEARCH
 # ══════════════════════════════════════════════════════════════
 def _build_search_filter(search: str) -> dict:
     base = {'status': 'ACTIVE'}
     s = (search or '').strip()
     if not s:
         return base
-
     su = s.upper()
     if su.startswith(LISTING_PREFIX):
         base['listing_id'] = {'$regex': _re.escape(su), '$options': 'i'}
@@ -561,8 +627,7 @@ async def _render_market(update, page=1, search: str = '', edit_query=None):
     total_pages = max(1, (total + LISTINGS_PER_PAGE - 1) // LISTINGS_PER_PAGE)
     page = max(1, min(page, total_pages))
 
-    cursor = (marketplace_col
-              .find(flt)
+    cursor = (marketplace_col.find(flt)
               .sort('created_at', -1)
               .skip((page - 1) * LISTINGS_PER_PAGE)
               .limit(LISTINGS_PER_PAGE))
@@ -585,7 +650,7 @@ async def market(update: Update, context: CallbackContext):
 
 
 # ══════════════════════════════════════════════════════════════
-# /sellwaifu
+# /sellwaifu — Rich table confirmation
 # ══════════════════════════════════════════════════════════════
 async def sellwaifu(update: Update, context: CallbackContext):
     try:
@@ -623,9 +688,8 @@ async def sellwaifu(update: Update, context: CallbackContext):
 
         existing = await marketplace_col.find_one({'waifu_id': waifu_id, 'status': 'ACTIVE'})
         if existing:
-            await _send(
-                update,
-                f"❌ This waifu (ID <code>{_esc(waifu_id)}</code>) is already listed by someone "
+            await _send(update,
+                f"❌ This waifu (ID <code>{_esc(waifu_id)}</code>) is already listed "
                 f"as <code>{_esc(existing.get('listing_id'))}</code>."
             )
             return
@@ -642,19 +706,20 @@ async def sellwaifu(update: Update, context: CallbackContext):
         token = await _create_pending(user.id, 'sell',
                                       {'waifu_id': waifu_id, 'price': price})
 
-        # 🔥 RICH TABLE (kept!)
-        headers = ["Field", "Value"]
-        rows = [
-            ["🌸 Name", f"<b>{rich_esc(snap['name'])}</b>"],
-            ["⭐ Rarity", f"{rar} <b>{rich_esc(snap['rarity'])}</b>"],
-            ["🆔 Char ID", rich_code(snap['id'])],
-            ["💰 Price", f"<b>{_fmt(price)}</b>"],
-            ["🏦 Tax (5%)", f"<b>{_fmt(tax)}</b>"],
-            ["💵 You receive", f"<b>{_fmt(gets)}</b>"],
-        ]
         body = (
             rich_heading("🏪 LIST WAIFU", 2)
-            + rich_table(headers, rows, border=1)
+            + rich_table(
+                ["Field", "Value"],
+                [
+                    ["🌸 Name", f"<b>{rich_esc(snap['name'])}</b>"],
+                    ["⭐ Rarity", f"{rar} <b>{rich_esc(snap['rarity'])}</b>"],
+                    ["🆔 Char ID", rich_code(snap['id'])],
+                    ["💰 Price", f"<b>{_fmt(price)}</b>"],
+                    ["🏦 Tax (5%)", f"<b>{_fmt(tax)}</b>"],
+                    ["💵 You receive", f"<b>{_fmt(gets)}</b>"],
+                ],
+                border=1,
+            )
             + rich_note("Confirm to create this listing?")
         )
 
@@ -668,7 +733,7 @@ async def sellwaifu(update: Update, context: CallbackContext):
 
 
 # ══════════════════════════════════════════════════════════════
-# /wbuy
+# /wbuy — Rich table confirmation
 # ══════════════════════════════════════════════════════════════
 async def wbuy(update: Update, context: CallbackContext):
     try:
@@ -713,23 +778,23 @@ async def wbuy(update: Update, context: CallbackContext):
             return
 
         rar = _rar_symbol_only(listing['waifu_rarity'])
-        tax = int(round(price * float(listing.get('tax_rate', MARKET_TAX_RATE))))
         token = await _create_pending(user.id, 'buy',
                                       {'listing_id': lid, 'price': price})
 
-        # 🔥 RICH TABLE (kept!)
-        headers = ["Field", "Value"]
-        rows = [
-            ["🌸 Waifu", f"<b>{rich_esc(listing['waifu_name'])}</b>"],
-            ["⭐ Rarity", f"{rar} <b>{rich_esc(listing['waifu_rarity'])}</b>"],
-            ["🆔 Char ID", rich_code(listing['waifu_id'])],
-            ["💰 Price", f"<b>{_fmt(price)}</b>"],
-            ["💳 Your balance", f"<b>{_fmt(bal)}</b>"],
-            ["💵 After purchase", f"<b>{_fmt(bal - price)}</b>"],
-        ]
         body = (
             rich_heading("🛒 PURCHASE CONFIRMATION", 2)
-            + rich_table(headers, rows, border=1)
+            + rich_table(
+                ["Field", "Value"],
+                [
+                    ["🌸 Waifu", f"<b>{rich_esc(listing['waifu_name'])}</b>"],
+                    ["⭐ Rarity", f"{rar} <b>{rich_esc(listing['waifu_rarity'])}</b>"],
+                    ["🆔 Char ID", rich_code(listing['waifu_id'])],
+                    ["💰 Price", f"<b>{_fmt(price)}</b>"],
+                    ["💳 Your balance", f"<b>{_fmt(bal)}</b>"],
+                    ["💵 After purchase", f"<b>{_fmt(bal - price)}</b>"],
+                ],
+                border=1,
+            )
             + rich_note("Are you sure you want to buy this waifu?")
         )
 
@@ -822,16 +887,32 @@ async def _exec_sell(query, user_id: int, params: dict):
         return
 
     tax = int(round(price * MARKET_TAX_RATE))
-    txt = (
-        f"✅ <b>Listing created!</b>\n\n"
-        f"🆔 <code>{listing_id}</code>\n"
-        f"🌸 {_esc(snap['name'])}\n"
-        f"💰 <b>{_fmt(price)}</b>\n"
-        f"💵 You'll receive: <b>{_fmt(price - tax)}</b>\n\n"
-        f"<i>Waiting for a buyer...</i>"
+
+    body = (
+        rich_heading("✅ LISTING CREATED", 2)
+        + rich_table(
+            ["Field", "Value"],
+            [
+                ["🆔 Listing", f"<code>{listing_id}</code>"],
+                ["🌸 Name", rich_esc(snap['name'])],
+                ["💰 Price", f"<b>{_fmt(price)}</b>"],
+                ["🏦 Tax (5%)", f"<b>{_fmt(tax)}</b>"],
+                ["💵 You receive", f"<b>{_fmt(price - tax)}</b>"],
+            ],
+            border=1,
+        )
+        + rich_note("⏳ Waiting for a buyer...")
     )
+
+    # Try rich edit first
     try:
-        await query.edit_message_text(txt, parse_mode='HTML')
+        if RICH_UI_OK and PYRO_OK:
+            result = await _direct_rich_edit(
+                query.message.chat.id, query.message.message_id, body, None
+            )
+            if result:
+                return
+        await query.edit_message_text(_rich_to_ascii(body), parse_mode='HTML')
     except Exception:
         pass
 
@@ -1001,39 +1082,73 @@ async def _exec_buy(query, buyer_id: int, params: dict):
 
     LOGGER.info(f"[buy] SUCCESS {lid} txn={txn_id}")
 
-    try:
-        await query.edit_message_text(
-            f"✅ <b>Purchase complete!</b>\n\n"
-            f"🌸 {_esc(listing.get('waifu_name', ''))}\n"
-            f"💰 Paid: <b>{_fmt(price)}</b>\n"
-            f"📜 <code>{txn_id}</code>",
-            parse_mode='HTML',
+    # Success message with rich table
+    body = (
+        rich_heading("✅ PURCHASE COMPLETE", 2)
+        + rich_table(
+            ["Field", "Value"],
+            [
+                ["🌸 Waifu", f"<b>{rich_esc(listing.get('waifu_name', ''))}</b>"],
+                ["🆔 Char ID", f"<code>{_esc(waifu_id)}</code>"],
+                ["💰 Paid", f"<b>{_fmt(price)}</b>"],
+                ["💵 New balance", f"<b>{_fmt(bal - price)}</b>"],
+                ["📜 Txn ID", f"<code>{txn_id}</code>"],
+            ],
+            border=1,
         )
+        + rich_note("🌸 Added to your /harem!")
+    )
+
+    try:
+        if RICH_UI_OK and PYRO_OK:
+            result = await _direct_rich_edit(
+                query.message.chat.id, query.message.message_id, body, None
+            )
+            if not result:
+                await query.edit_message_text(_rich_to_ascii(body), parse_mode='HTML')
+        else:
+            await query.edit_message_text(_rich_to_ascii(body), parse_mode='HTML')
     except Exception:
         pass
 
-    # 🔥 Seller DM
+    # Seller DM
     try:
         buyer_mention = (
             f"@{query.from_user.username}"
             if getattr(query.from_user, 'username', None)
             else _esc(query.from_user.first_name or 'User')
         )
-        seller_msg = (
-            f"🎉 <b>SOLD!</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"🌸 <b>{_esc(listing.get('waifu_name', ''))}</b>\n"
-            f"🆔 <code>{_esc(waifu_id)}</code>\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"💰 <b>Sold for:</b> <b>{_fmt(price)}</b>\n"
-            f"🏦 <b>Tax (5%):</b> <b>{_fmt(tax)}</b>\n"
-            f"💵 <b>You received:</b> <b>{_fmt(gets)}</b> Edollers\n\n"
-            f"👤 <b>Buyer:</b> {buyer_mention}\n"
-            f"📜 <b>TXN:</b> <code>{txn_id}</code>"
+
+        seller_body = (
+            rich_heading("🎉 SOLD!", 2)
+            + rich_table(
+                ["Field", "Value"],
+                [
+                    ["🌸 Waifu", f"<b>{rich_esc(listing.get('waifu_name', ''))}</b>"],
+                    ["🆔 Char ID", f"<code>{_esc(waifu_id)}</code>"],
+                    ["💰 Sold for", f"<b>{_fmt(price)}</b>"],
+                    ["🏦 Tax (5%)", f"<b>{_fmt(tax)}</b>"],
+                    ["💵 You received", f"<b>{_fmt(gets)} Edollers</b>"],
+                    ["👤 Buyer", buyer_mention],
+                    ["📜 Txn ID", f"<code>{txn_id}</code>"],
+                ],
+                border=1,
+            )
         )
-        await application.bot.send_message(
-            chat_id=seller_id, text=seller_msg, parse_mode='HTML',
-        )
+
+        # Try direct rich first
+        sent = False
+        if RICH_UI_OK and PYRO_OK:
+            result = await _direct_rich_send(seller_id, seller_body, None)
+            if result:
+                sent = True
+
+        if not sent:
+            await application.bot.send_message(
+                chat_id=seller_id,
+                text=_rich_to_ascii(seller_body),
+                parse_mode='HTML',
+            )
         LOGGER.info(f"[buy] seller DM sent to {seller_id}")
     except Forbidden:
         LOGGER.warning(f"[buy] seller {seller_id} blocked bot")
@@ -1069,7 +1184,22 @@ async def cancelsell(update: Update, context: CallbackContext):
             {'$set': {'status': 'CANCELLED', 'updated_at': _now()}},
         )
         await _unlock(user.id, listing['waifu_id'], lid)
-        await _send(update, f"✅ Listing <code>{lid}</code> cancelled.")
+
+        body = (
+            rich_heading("✅ LISTING CANCELLED", 2)
+            + rich_table(
+                ["Field", "Value"],
+                [
+                    ["🆔 Listing", f"<code>{lid}</code>"],
+                    ["🌸 Waifu", rich_esc(listing.get('waifu_name', ''))],
+                    ["💰 Price", f"<b>{_fmt(listing.get('price', 0))}</b>"],
+                    ["🔓 Status", "<b>Unlocked</b>"],
+                ],
+                border=1,
+            )
+            + rich_note("Waifu has been unlocked and returned to your collection.")
+        )
+        await _send(update, body)
     except Exception as e:
         LOGGER.exception(f"[cancelsell] error: {e}")
 
@@ -1151,17 +1281,22 @@ async def marketstats(update: Update, context: CallbackContext):
         pot_doc = await market_stats_col.find_one({'_id': 'marketplace'})
         pot = int(pot_doc.get('tax_pot', 0)) if pot_doc else 0
 
-        headers = ["Metric", "Value"]
-        rows = [
-            ["🟢 Active", f"<b>{active}</b>"],
-            ["✅ Sold", f"<b>{sold}</b>"],
-            ["❌ Cancelled", f"<b>{cancelled}</b>"],
-            ["⏳ Processing", f"<b>{processing}</b>"],
-            ["⚠️ Failed", f"<b>{failed}</b>"],
-            ["📜 Txns", f"<b>{txns}</b>"],
-            ["💰 Tax pot", f"<b>{_fmt(pot)}</b>"],
-        ]
-        body = rich_heading("🏦 MARKETPLACE STATS", 2) + rich_table(headers, rows, border=1)
+        body = (
+            rich_heading("🏦 MARKETPLACE STATS", 2)
+            + rich_table(
+                ["Metric", "Value"],
+                [
+                    ["🟢 Active", f"<b>{active}</b>"],
+                    ["✅ Sold", f"<b>{sold}</b>"],
+                    ["❌ Cancelled", f"<b>{cancelled}</b>"],
+                    ["⏳ Processing", f"<b>{processing}</b>"],
+                    ["⚠️ Failed", f"<b>{failed}</b>"],
+                    ["📜 Txns", f"<b>{txns}</b>"],
+                    ["💰 Tax pot", f"<b>{_fmt(pot)}</b>"],
+                ],
+                border=1,
+            )
+        )
         await _send(update, body)
     except Exception as e:
         LOGGER.exception(f"[marketstats] error: {e}")
