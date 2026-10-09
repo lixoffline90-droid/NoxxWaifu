@@ -452,10 +452,9 @@ async def runner() -> None:
     register_handlers()
     await _ensure_indexes()
 
-    # ── Start Waifuu (Pyrogram) for rich UI ─────────────────────
-    # ⚠️ Use `connect()` instead of `start()` — `start()` also starts
-    #    the Pyrogram dispatcher which calls getUpdates, causing a
-    #    Conflict with PTB's polling (same bot token).
+    # ── Pyrogram: connect only (NOT start) ──────────────────────
+    # • start() also spawns the dispatcher → calls getUpdates → Conflict with PTB.
+    # • connect() establishes the client without touching updates.
     try:
         from NoxxNetwork import Waifuu
     except Exception:
@@ -471,7 +470,7 @@ async def runner() -> None:
     else:
         LOGGER.warning("Waifuu (Pyrogram) client not available")
 
-    # ── Start PTB ───────────────────────────────────────────────
+    # ── PTB: start polling ──────────────────────────────────────
     await application.initialize()
     await application.start()
     await application.updater.start_polling(drop_pending_updates=True)
@@ -481,7 +480,6 @@ async def runner() -> None:
     try:
         await asyncio.Event().wait()
     finally:
-        # Cleanup on shutdown
         try:
             await application.updater.stop()
             await application.stop()
