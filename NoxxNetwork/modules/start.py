@@ -1,5 +1,5 @@
 """
-Start & Help — Rich UI
+Start & Help — Rich UI with category-based help
 """
 import random
 import html as _html
@@ -21,11 +21,11 @@ from NoxxNetwork import pm_users as collection
 
 
 # ══════════════════════════════════════════════════════════════
-# Rich UI imports (optional)
+# Rich UI imports
 # ══════════════════════════════════════════════════════════════
 RICH_UI_OK = False
 _rich_send = _rich_edit = None
-_rich_esc = _rich_heading = _rich_table = _rich_note = _rich_code = None
+_rich_esc = _rich_heading = _rich_table = _rich_note = None
 _rich_details = None
 
 try:
@@ -36,7 +36,6 @@ try:
         rich_heading as _rich_heading,
         rich_table as _rich_table,
         rich_note as _rich_note,
-        rich_code as _rich_code,
         rich_details as _rich_details,
     )
     RICH_UI_OK = True
@@ -61,48 +60,31 @@ def _esc(v) -> str:
     return _html.escape(str(v), quote=False)
 
 
-def _strip_html(s: str) -> str:
-    import re
-    return re.sub(r'<[^>]+>', '', str(s))
-
-
 def _rich_to_clean(html_text: str) -> str:
-    """Convert rich HTML → plain HTML for PTB fallback.
-    Collapses <details> to always-shown, keeps <b>, <code>, <blockquote>."""
+    """Convert rich HTML → plain HTML for PTB fallback."""
     import re
     t = str(html_text)
-
-    # Remove <img>
     t = re.sub(r'<img\b[^>]*/?>', '', t, flags=re.I)
-    # Collapse <details> to inline content
     t = re.sub(r'<details[^>]*>', '\n', t, flags=re.I)
     t = re.sub(r'</details>', '', t, flags=re.I)
     t = re.sub(r'<summary[^>]*>(.*?)</summary>', r'\n<b>\1</b>\n', t, flags=re.I | re.S)
-    # Headings → bold
     t = re.sub(r'<h[1-6][^>]*>(.*?)</h[1-6]>', r'\n<b>\1</b>\n', t, flags=re.I | re.S)
-    # tg-button → text only
     t = re.sub(r'<tg-button[^>]*>(.*?)</tg-button>', r'\1', t, flags=re.I | re.S)
-    # blockquote → plain
     t = re.sub(r'<blockquote[^>]*>(.*?)</blockquote>', r'\n\1\n', t, flags=re.I | re.S)
 
-    # Tables → clean bullet list (not ugly pipes)
     def _table_sub(m):
         inner = m.group(1)
         rows_html = re.findall(r'<tr[^>]*>(.*?)</tr>', inner, re.I | re.S)
         lines = []
         for r in rows_html:
             cells = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', r, re.I | re.S)
-            # Skip header row
-            if cells and all(_strip_html(c).lower().strip() in
-                             ('feature', 'command', 'what it does', 'details')
-                             for c in cells):
+            header_check = [re.sub(r'<[^>]+>', '', c).lower().strip() for c in cells]
+            if header_check and all(h in ('command', 'what it does', 'feature', 'details') for h in header_check):
                 continue
             if len(cells) == 2:
-                k = cells[0].strip()
-                v = cells[1].strip()
-                lines.append(f"  {k}  →  {v}")
+                lines.append(f"  {cells[0].strip()}  →  {cells[1].strip()}")
             else:
-                lines.append("  " + "  •  ".join(_strip_html(c) for c in cells))
+                lines.append("  " + "  •  ".join(cells))
         return "\n" + "\n".join(lines) + "\n"
 
     t = re.sub(r'<table[^>]*>(.*?)</table>', _table_sub, t, flags=re.I | re.S)
@@ -114,10 +96,9 @@ def _rich_to_clean(html_text: str) -> str:
 
 
 # ══════════════════════════════════════════════════════════════
-# RICH SEND
+# RICH SEND / EDIT
 # ══════════════════════════════════════════════════════════════
 async def _send_rich(update_or_query, html_text: str, *, kb=None, edit: bool = False):
-    """Send rich message. Falls back to PTB if rich fails."""
     # ── Edit mode ──
     if edit and hasattr(update_or_query, 'message'):
         q = update_or_query
@@ -135,7 +116,6 @@ async def _send_rich(update_or_query, html_text: str, *, kb=None, edit: bool = F
             except Exception as e:
                 LOGGER.warning(f"[start] rich edit failed: {e}")
 
-        # PTB fallback
         plain = _rich_to_clean(html_text)
         try:
             if q.message.photo:
@@ -161,19 +141,14 @@ async def _send_rich(update_or_query, html_text: str, *, kb=None, edit: bool = F
         except Exception as e:
             LOGGER.warning(f"[start] rich send failed: {e}")
 
-    # PTB fallback
     plain = _rich_to_clean(html_text)
     try:
         photo_url = random.choice(PHOTO_URL)
         if len(plain) <= 1024:
             await update.message.reply_photo(
-                photo=photo_url,
-                caption=plain,
-                reply_markup=kb,
-                parse_mode='HTML',
+                photo=photo_url, caption=plain, reply_markup=kb, parse_mode='HTML',
             )
         else:
-            # Too long for caption → send photo then text
             try:
                 await update.message.reply_photo(photo=photo_url)
             except Exception:
@@ -187,7 +162,95 @@ async def _send_rich(update_or_query, html_text: str, *, kb=None, edit: bool = F
 
 
 # ══════════════════════════════════════════════════════════════
-# HTML BUILDERS
+# CATEGORY DATA
+# ══════════════════════════════════════════════════════════════
+CATEGORIES = {
+    "catch": {
+        "emoji": "🌸",
+        "title": "CATCH & COLLECT",
+        "rows": [
+            ["/guess", "Catch the waifu in a group"],
+            ["/grab /hunt /collect", "Aliases for /guess"],
+            ["/fav &lt;id&gt;", "Mark a character as favorite"],
+            ["/harem", "View your collection"],
+            ["/profile", "View your profile card"],
+            ["/w &lt;id&gt;", "Look up a character"],
+            ["/find &lt;id&gt;", "See who owns a character"],
+            ["/wrarity", "Collection breakdown by rarity"],
+        ],
+    },
+    "market": {
+        "emoji": "🏪",
+        "title": "MARKETPLACE",
+        "rows": [
+            ["/market [search]", "Browse listings (search by name/id)"],
+            ["/sellwaifu &lt;id&gt; &lt;price&gt;", "List a waifu for sale"],
+            ["/wbuy &lt;listing_id&gt;", "Buy a listed waifu"],
+            ["/cancelsell &lt;listing_id&gt;", "Cancel your listing"],
+            ["/mylistings", "See your active listings"],
+        ],
+    },
+    "trade": {
+        "emoji": "💌",
+        "title": "TRADE & GIFT",
+        "rows": [
+            ["/trade &lt;yours&gt; &lt;theirs&gt;", "Trade waifus (reply to user)"],
+            ["/gift &lt;id&gt;", "Gift a waifu (reply to user)"],
+        ],
+    },
+    "economy": {
+        "emoji": "🪙",
+        "title": "ECONOMY & COINS",
+        "rows": [
+            ["/ball 🎳", "Play bowling, win Edollers"],
+            ["/wpocket", "Check balance & balls left"],
+            ["/wsend &lt;amount&gt;", "Send Edollers to a user"],
+            ["/wtop", "Top Edollers holders"],
+        ],
+    },
+    "style": {
+        "emoji": "🎨",
+        "title": "CUSTOMIZATION",
+        "rows": [
+            ["/whmode", "Set harem mode (Default/Rarity/Char/Anime)"],
+            ["/whfav &lt;id&gt;", "Show only one character in harem"],
+            ["/whstyle", "Change harem display style"],
+        ],
+    },
+    "top": {
+        "emoji": "🏆",
+        "title": "LEADERBOARDS & STATS",
+        "rows": [
+            ["/top", "Top waifu collectors"],
+            ["/ctop", "Chat leaderboard"],
+            ["/topgroups", "Top groups"],
+            ["/stats", "Bot statistics"],
+        ],
+    },
+    "admin": {
+        "emoji": "⚙️",
+        "title": "GROUP TOOLS",
+        "rows": [
+            ["/changetime &lt;num&gt;", "Set spawn frequency (admin)"],
+            ["/spawn &lt;id&gt; &lt;freq&gt; &lt;scope&gt;", "Control rarity spawn (sudo)"],
+            ["/broadcast", "Broadcast to all users (owner)"],
+            ["/banuser /unbanuser", "Ban/unban user (sudo)"],
+            ["/bangroup /unbangroup", "Ban/unban group (sudo)"],
+            ["/bannedlist", "List banned users/groups (sudo)"],
+        ],
+    },
+    "redeem": {
+        "emoji": "🎁",
+        "title": "REDEEM CODES",
+        "rows": [
+            ["/redeem &lt;code&gt;", "Redeem a code to get a character"],
+        ],
+    },
+}
+
+
+# ══════════════════════════════════════════════════════════════
+# BUILDERS
 # ══════════════════════════════════════════════════════════════
 def _banner_url() -> str:
     try:
@@ -196,26 +259,34 @@ def _banner_url() -> str:
         return ""
 
 
+def _mk_table(rows, headers=None):
+    """Build a table for commands (rich if available, else HTML)."""
+    headers = headers or ["Command", "What it does"]
+    if RICH_UI_OK and _rich_table:
+        try:
+            return _rich_table(headers, rows, border=1)
+        except Exception:
+            pass
+    parts = ['<table border="1">']
+    parts.append("<tr>" + "".join(f"<th>{h}</th>" for h in headers) + "</tr>")
+    for r in rows:
+        parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>")
+    parts.append("</table>")
+    return "".join(parts)
+
+
 def build_start_html(first_name: str) -> str:
     banner = _banner_url()
     name = _esc(first_name or 'User')
 
-    # Key features table
     features = [
-        ["🎴 Catch",       "Spawn & grab waifus in groups"],
+        ["🎴 Catch",        "Spawn & grab waifus in groups"],
         ["🏪 Marketplace",  "Buy & sell characters for Edollers"],
         ["🎁 Trade",        "Trade / gift waifus with friends"],
         ["🎳 /ball",        "Earn Edollers daily"],
         ["🎨 Harem Mode",   "Filter & customize your harem"],
     ]
-
-    if RICH_UI_OK and _rich_table:
-        try:
-            table = _rich_table(["Feature", "Details"], features, border=1)
-        except Exception:
-            table = ""
-    else:
-        table = ""
+    table = _mk_table(features, headers=["Feature", "Details"])
 
     why_choose = (
         "⭐ Simple slash commands, no setup needed.\n"
@@ -224,7 +295,6 @@ def build_start_html(first_name: str) -> str:
         "🌐 Click <b>HELP</b> below for all commands."
     )
 
-    # Compose body
     body = ""
     if banner:
         body += f'<img src="{_esc(banner)}" />'
@@ -236,125 +306,68 @@ def build_start_html(first_name: str) -> str:
         "</blockquote>"
     )
 
-    if _rich_details and table:
-        body += f"<details open><summary>✨ KEY FEATURES ✨</summary>{table}</details>"
-    else:
-        body += f"\n<b>✨ KEY FEATURES ✨</b>\n{table}"
-
     if _rich_details:
+        body += f"<details open><summary>✨ KEY FEATURES ✨</summary>{table}</details>"
         body += f"<details><summary>⚡ WHY CHOOSE IT? ⚡</summary>{why_choose}</details>"
     else:
+        body += f"\n<b>✨ KEY FEATURES ✨</b>\n{table}"
         body += f"\n<b>⚡ WHY CHOOSE IT? ⚡</b>\n{why_choose}"
 
-    body += f"<blockquote>POWERED BY » <b>WAIFU CATCHER</b></blockquote>"
+    body += "<blockquote>POWERED BY » <b>WAIFU CATCHER</b></blockquote>"
     return body
 
 
-def _mk_table(rows):
-    if RICH_UI_OK and _rich_table:
-        try:
-            return _rich_table(["Command", "What it does"], rows, border=1)
-        except Exception:
-            pass
-    # fallback HTML table
-    parts = ['<table border="1">']
-    parts.append("<tr><th>Command</th><th>What it does</th></tr>")
-    for r in rows:
-        parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>")
-    parts.append("</table>")
-    return "".join(parts)
-
-
-def build_help_html(first_name: str) -> str:
+def build_help_menu_html(first_name: str) -> str:
+    """Help home page — pick a category."""
+    banner = _banner_url()
     name = _esc(first_name or 'User')
 
-    # ─── Catch & Collect ────────────────────────────────────────
-    catch_rows = [
-        ["/guess", "Catch the waifu in a group"],
-        ["/grab /hunt /collect", "Aliases for /guess"],
-        ["/fav &lt;id&gt;", "Mark a character as favorite"],
-        ["/harem", "View your collection"],
-        ["/profile", "View your profile card"],
-        ["/w &lt;id&gt;", "Look up a character"],
-        ["/find &lt;id&gt;", "See who owns a character"],
+    info_rows = [
+        ["📋 Help Menu", "All commands can be used with: /"],
+        ["🎴 Categories", "Pick a category below"],
     ]
-    catch_tbl = _mk_table(catch_rows)
+    info_table = _mk_table(info_rows, headers=["Feature", "Details"])
 
-    # ─── Marketplace ────────────────────────────────────────────
-    market_rows = [
-        ["/market [search]", "Browse listings (search by name/id)"],
-        ["/sellwaifu &lt;id&gt; &lt;price&gt;", "List a waifu for sale"],
-        ["/wbuy &lt;listing_id&gt;", "Buy a listed waifu"],
-        ["/cancelsell &lt;listing_id&gt;", "Cancel your listing"],
-        ["/mylistings", "See your active listings"],
-    ]
-    market_tbl = _mk_table(market_rows)
+    body = ""
+    if banner:
+        body += f'<img src="{_esc(banner)}" />'
+    body += f"<h3>📜 CHOOSE A CATEGORY</h3>"
+    body += (
+        f"<blockquote>Hey {name}, pick a category below to see its commands.</blockquote>"
+    )
 
-    # ─── Trade & Gift ───────────────────────────────────────────
-    trade_rows = [
-        ["/trade &lt;yours&gt; &lt;theirs&gt;", "Trade waifus (reply to user)"],
-        ["/gift &lt;id&gt;", "Gift a waifu (reply to user)"],
-    ]
-    trade_tbl = _mk_table(trade_rows)
+    if _rich_details:
+        body += f"<details open><summary>✨ HELP FEATURES ✨</summary>{info_table}</details>"
+    else:
+        body += f"\n<b>✨ HELP FEATURES ✨</b>\n{info_table}"
 
-    # ─── Economy ────────────────────────────────────────────────
-    econ_rows = [
-        ["/ball 🎳", "Play bowling, win Edollers"],
-        ["/wpocket", "Check balance & balls left"],
-        ["/wsend &lt;amount&gt;", "Send Edollers to a user"],
-        ["/wtop", "Top Edollers holders"],
-        ["/wrarity", "Collection breakdown by rarity"],
-    ]
-    econ_tbl = _mk_table(econ_rows)
+    body += "<blockquote>POWERED BY » <b>WAIFU CATCHER</b></blockquote>"
+    return body
 
-    # ─── Customization ──────────────────────────────────────────
-    cust_rows = [
-        ["/whmode", "Set harem mode (Default/Rarity/Char/Anime)"],
-        ["/whfav &lt;id&gt;", "Show only one character in harem"],
-        ["/whstyle", "Change harem display style"],
-    ]
-    cust_tbl = _mk_table(cust_rows)
 
-    # ─── Leaderboards ───────────────────────────────────────────
-    stats_rows = [
-        ["/top", "Top waifu collectors"],
-        ["/ctop", "Chat leaderboard"],
-        ["/topgroups", "Top groups"],
-        ["/stats", "Bot statistics"],
-    ]
-    stats_tbl = _mk_table(stats_rows)
+def build_category_html(cat_key: str, first_name: str) -> str:
+    """Category page — commands table."""
+    cat = CATEGORIES.get(cat_key)
+    if not cat:
+        return build_help_menu_html(first_name)
 
-    # ─── Group Tools ────────────────────────────────────────────
-    group_rows = [
-        ["/changetime &lt;num&gt;", "Set spawn frequency (admin)"],
-        ["/spawn &lt;id&gt; &lt;freq&gt; &lt;scope&gt;", "Control rarity spawn (sudo)"],
-    ]
-    group_tbl = _mk_table(group_rows)
-
-    # ─── Redeem ─────────────────────────────────────────────────
-    redeem_rows = [
-        ["/redeem &lt;code&gt;", "Redeem a code to get a character"],
-    ]
-    redeem_tbl = _mk_table(redeem_rows)
-
-    def _section(title: str, table: str, open: bool = False) -> str:
-        if _rich_details:
-            return f"<details{' open' if open else ''}><summary>{title}</summary>{table}</details>"
-        return f"\n<b>{title}</b>\n{table}"
+    name = _esc(first_name or 'User')
+    emoji = cat["emoji"]
+    title = cat["title"]
+    rows = cat["rows"]
+    table = _mk_table(rows)
 
     body = (
-        f"<h2>🎐 WAIFU CATCHER — HELP CENTER ♡</h2>"
-        f"<blockquote>Hey {name}, here are all commands you can use.</blockquote>"
-        + _section("🌸 CATCH & COLLECT", catch_tbl, open=True)
-        + _section("🏪 MARKETPLACE", market_tbl)
-        + _section("💌 TRADE & GIFT", trade_tbl)
-        + _section("🪙 ECONOMY & COINS", econ_tbl)
-        + _section("🎨 CUSTOMIZATION", cust_tbl)
-        + _section("🏆 LEADERBOARDS & STATS", stats_tbl)
-        + _section("⚙️ GROUP TOOLS", group_tbl)
-        + _section("🎁 REDEEM", redeem_tbl)
-        + f"<blockquote>✨ Click <b>ADD ME</b> below and let the catching begin!</blockquote>"
+        f"<h3>{emoji} {title}</h3>"
+        f"<blockquote>Hey {name}, here are all commands in this category.</blockquote>"
     )
+
+    if _rich_details:
+        body += f"<details open><summary>📋 COMMANDS</summary>{table}</details>"
+    else:
+        body += f"\n<b>📋 COMMANDS</b>\n{table}"
+
+    body += "<blockquote>🔙 Use the buttons below to navigate.</blockquote>"
     return body
 
 
@@ -372,14 +385,31 @@ def _start_kb() -> InlineKeyboardMarkup:
     ])
 
 
-def _help_kb() -> InlineKeyboardMarkup:
+def _help_menu_kb() -> InlineKeyboardMarkup:
+    """Help menu — grid of category buttons."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⛩ Aᴅᴅ Mᴇ ⛩", url=f"https://t.me/{BOT_USERNAME}?startgroup=new")],
         [
-            InlineKeyboardButton("✦ Sᴜᴘᴘᴏʀᴛ", url=f"https://t.me/{SUPPORT_CHAT}"),
-            InlineKeyboardButton("✧ Uᴘᴅᴀᴛᴇs", url=f"https://t.me/{UPDATE_CHAT}"),
+            InlineKeyboardButton("🌸 CATCH", callback_data="help:cat:catch"),
+            InlineKeyboardButton("🏪 MARKET", callback_data="help:cat:market"),
+            InlineKeyboardButton("💌 TRADE", callback_data="help:cat:trade"),
         ],
-        [InlineKeyboardButton("⤾ Bᴀᴄᴋ Tᴏ Mᴇɴᴜ", callback_data="back")],
+        [
+            InlineKeyboardButton("🪙 ECONOMY", callback_data="help:cat:economy"),
+            InlineKeyboardButton("🎨 STYLE", callback_data="help:cat:style"),
+            InlineKeyboardButton("🏆 TOP", callback_data="help:cat:top"),
+        ],
+        [
+            InlineKeyboardButton("⚙️ ADMIN", callback_data="help:cat:admin"),
+            InlineKeyboardButton("🎁 REDEEM", callback_data="help:cat:redeem"),
+        ],
+        [InlineKeyboardButton("⤾ Bᴀᴄᴋ Tᴏ Hᴏᴍᴇ", callback_data="back")],
+    ])
+
+
+def _category_kb(cat_key: str) -> InlineKeyboardMarkup:
+    """Back button within category view."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("◀ Bᴀᴄᴋ Tᴏ Cᴀᴛᴇɢᴏʀɪᴇs", callback_data="help:home")],
     ])
 
 
@@ -417,13 +447,10 @@ async def start(update: Update, context: CallbackContext) -> None:
     except Exception as e:
         LOGGER.warning(f"[start] user tracking failed: {e}")
 
-    # Private chat → rich start
     if update.effective_chat.type == "private":
-        html_text = build_start_html(first_name)
-        await _send_rich(update, html_text, kb=_start_kb())
+        await _send_rich(update, build_start_html(first_name), kb=_start_kb())
         return
 
-    # Group chat → short message
     html_text = (
         f"<h3>🎴 WAIFU CATCHER</h3>"
         f"<blockquote>Alive! Connect to me in PM for more information.</blockquote>"
@@ -432,20 +459,49 @@ async def start(update: Update, context: CallbackContext) -> None:
 
 
 # ══════════════════════════════════════════════════════════════
-# HELP / BACK
+# CALLBACKS
 # ══════════════════════════════════════════════════════════════
 async def button(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
+    data = query.data or ""
+    first_name = query.from_user.first_name or 'User'
 
     try:
-        if query.data == 'help':
-            html_text = build_help_html(query.from_user.first_name or 'User')
-            await _send_rich(query, html_text, kb=_help_kb(), edit=True)
+        # ── Main help menu ──
+        if data in ('help', 'help:home'):
+            await _send_rich(
+                query,
+                build_help_menu_html(first_name),
+                kb=_help_menu_kb(),
+                edit=True,
+            )
+            return
 
-        elif query.data == 'back':
-            html_text = build_start_html(query.from_user.first_name or 'User')
-            await _send_rich(query, html_text, kb=_start_kb(), edit=True)
+        # ── Category view ──
+        if data.startswith("help:cat:"):
+            cat_key = data.split(":", 2)[2]
+            if cat_key not in CATEGORIES:
+                await query.answer("Unknown category.", show_alert=True)
+                return
+            await _send_rich(
+                query,
+                build_category_html(cat_key, first_name),
+                kb=_category_kb(cat_key),
+                edit=True,
+            )
+            return
+
+        # ── Back to start ──
+        if data == 'back':
+            await _send_rich(
+                query,
+                build_start_html(first_name),
+                kb=_start_kb(),
+                edit=True,
+            )
+            return
+
     except Exception as e:
         LOGGER.exception(f"[start.button] error: {e}")
 
@@ -454,6 +510,6 @@ async def button(update: Update, context: CallbackContext) -> None:
 # HANDLERS
 # ══════════════════════════════════════════════════════════════
 application.add_handler(
-    CallbackQueryHandler(button, pattern='^help$|^back$', block=False)
+    CallbackQueryHandler(button, pattern=r'^(help$|help:|back$)', block=False)
 )
 application.add_handler(CommandHandler('start', start, block=False))
