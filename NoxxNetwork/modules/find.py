@@ -54,7 +54,11 @@ async def find(update: Update, context: CallbackContext) -> None:
 
 async def _build_page(character_id: str, page: int, total_owners: int, total_pages: int, character: dict) -> str:
     skip = page * USERS_PER_PAGE
-    cursor = user_collection.find({'characters.id': character_id}).skip(skip).limit(USERS_PER_PAGE)
+    # Fetch only needed fields for speed
+    cursor = user_collection.find(
+        {'characters.id': character_id},
+        {'id': 1, 'first_name': 1, 'username': 1, 'characters': 1}
+    ).skip(skip).limit(USERS_PER_PAGE)
     users = await cursor.to_list(length=USERS_PER_PAGE)
 
     text = (
@@ -66,10 +70,18 @@ async def _build_page(character_id: str, page: int, total_owners: int, total_pag
     for i, user in enumerate(users, start=skip + 1):
         name = escape(str(user.get('first_name') or 'Unknown'))
         username = user.get('username')
+
+        # Count how many copies of this character this user owns
+        count = sum(
+            1 for c in user.get('characters', [])
+            if str(c.get('id')) == str(character_id)
+        )
+        count_str = f" ×{count}" if count > 0 else ""
+
         if username:
-            text += f"{i}. <b>{name}</b> @{escape(username)}\n"
+            text += f"{i}. <b>{name}</b>{count_str} @{escape(username)}\n"
         else:
-            text += f"{i}. <b>{name}</b>\n"
+            text += f"{i}. <b>{name}</b>{count_str}\n"
 
     text += f"\nPᴀɢᴇ {page + 1}/{total_pages}"
     return text
