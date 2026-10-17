@@ -173,7 +173,7 @@ CATEGORIES = {
 
 
 # ══════════════════════════════════════════════════════════════
-# BUILDERS (Rich UI Native)
+# BUILDERS
 # ══════════════════════════════════════════════════════════════
 def _esc(v) -> str:
     if v is None:
@@ -182,13 +182,11 @@ def _esc(v) -> str:
 
 
 def _mk_table(headers, rows):
-    """Uses native rich_table from rich_ui_decoded."""
     if RICH_UI_OK and _rich_table:
         try:
             return _rich_table(headers, rows, border=1)
         except Exception:
             pass
-    # Minimal fallback just in case rich_table breaks internally
     parts = ['<table border="1">']
     parts.append("<tr>" + "".join(f"<th>{h}</th>" for h in headers) + "</tr>")
     for r in rows:
@@ -245,15 +243,14 @@ def build_category_view(cat_key: str, user_id: int) -> str:
         args = item.get("args")
         desc = item.get("desc") or ""
 
-        cmd_str = f"<code>{_esc(cmd)}</code>"
+        # Safe formatting: only <code> and <b> tags, no newlines inside <td>
+        cmd_str = f"{_esc(cmd)}"
         
-        # 🔥 FIX: Table ke andar newline \n allowed nahi hota. 
-        # Isliye args aur alias ko same line me space dekar likha hai.
         if args and args != "—":
-            cmd_str += f" <i>{_esc(args)}</i>"
+            cmd_str += f" {_esc(args)}"
         
         if alias:
-            cmd_str += f" (🔀 {_esc(alias)})"
+            cmd_str += f" (Alias: {_esc(alias)})"
 
         rows.append([cmd_str, _esc(desc)])
 
@@ -270,7 +267,7 @@ def build_category_view(cat_key: str, user_id: int) -> str:
 
 
 # ══════════════════════════════════════════════════════════════
-# SEND / EDIT (Direct rich_ui calls)
+# RICH SEND
 # ══════════════════════════════════════════════════════════════
 async def _send_panel(update_or_query, html_text: str, *, kb=None, edit: bool = False):
     if not (RICH_UI_OK and PYRO_OK):
@@ -298,7 +295,7 @@ async def _send_panel(update_or_query, html_text: str, *, kb=None, edit: bool = 
 
 
 # ══════════════════════════════════════════════════════════════
-# KEYBOARDS & HANDLERS
+# KEYBOARDS
 # ══════════════════════════════════════════════════════════════
 def _panel_home_kb(user_id: int) -> InlineKeyboardMarkup:
     is_owner = _is_owner(user_id)
@@ -322,10 +319,14 @@ def _panel_home_kb(user_id: int) -> InlineKeyboardMarkup:
     ])
     return InlineKeyboardMarkup(rows)
 
+
 def _panel_cat_kb(cat_key: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton("◀ Bᴀᴄᴋ ᴛᴏ Pᴀɴᴇʟ", callback_data="apanel:home")]])
 
 
+# ══════════════════════════════════════════════════════════════
+# HANDLERS
+# ══════════════════════════════════════════════════════════════
 async def adminpanel(update: Update, context: CallbackContext) -> None:
     user = update.effective_user
     if not _is_sudo(user.id):
