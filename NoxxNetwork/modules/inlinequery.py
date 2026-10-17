@@ -222,11 +222,11 @@ async def inlinequery(update: Update, context: CallbackContext) -> None:
                     global_count = 0
 
                 caption = (
-                    f"<b>OᴡO! Cʜᴇᴄᴋ ᴏᴜᴛ Cʜᴀʀᴀᴄᴛᴇʀ!!</b>\n\n"
-                    f"<b>{escape(str(char_anime))}</b>\n"
-                    f"{escape(char_id)}:{escape(str(char_name))}\n\n"
-                    f"<b>RARITY</b> ( {escape(str(char_rarity))} )\n\n"
-                    f"<b>Gʟᴏʙᴀʟʟʏ ᴄᴀᴛᴄʜᴇs {global_count} ᴛɪᴍᴇs...</b>"
+                    f"<b>OᴡO! Cʜᴀʀᴀᴄᴛᴇʀ Dɪsᴄᴏᴠᴇʀᴇᴅ!!</b>\n\n"
+                    f"<b>◈ Sᴇʀɪᴇs:</b>{escape(str(char_anime))}</b>\n"
+                    f"<b>♡</b>{escape(char_id)}:{escape(str(char_name))}\n\n"
+                    f"<b>❖ Rᴀʀɪᴛʏ ➠</b> ( {escape(str(char_rarity))} )\n\n"
+                    f"<b>⌁ Gʟᴏʙᴀʟ Cᴀᴛᴄʜᴇs : {global_count} Tɪᴍᴇs...</b>"
                 )
 
             results.append(
