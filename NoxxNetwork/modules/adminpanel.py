@@ -1,9 +1,8 @@
 """
-Admin Panel — Interactive list with Rich UI (Fixed Fallback)
+Admin Panel — Interactive list with Rich UI banner.
 """
 import os
-import re
-import html as _html
+from html import escape
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -24,11 +23,16 @@ from NoxxNetwork import (
 # ─── Rich UI ──────────────────────────────────────────────────
 RICH_UI_OK = False
 _rich_send = _rich_edit = None
+_rich_heading = _rich_note = _rich_table = _rich_code = None
 
 try:
     from NoxxNetwork.rich_ui_decoded import (
         rich_send as _rich_send,
         rich_edit as _rich_edit,
+        rich_heading as _rich_heading,
+        rich_note as _rich_note,
+        rich_table as _rich_table,
+        rich_code as _rich_code,
     )
     RICH_UI_OK = True
     LOGGER.info("[adminpanel] rich_ui loaded ✅")
@@ -168,21 +172,12 @@ CATEGORIES = {
 
 
 # ══════════════════════════════════════════════════════════════
-# BUILDERS
+# BUILDERS (Using rich_ui functions directly)
 # ══════════════════════════════════════════════════════════════
 def _esc(v) -> str:
     if v is None:
         return ""
-    return _html.escape(str(v), quote=False)
-
-
-def _mk_table(headers, rows):
-    parts = ['<table border="1">']
-    parts.append("<tr>" + "".join(f"<th>{h}</th>" for h in headers) + "</tr>")
-    for r in rows:
-        parts.append("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>")
-    parts.append("</table>")
-    return "".join(parts)
+    return escape(str(v))
 
 
 def build_panel_home(user_id: int) -> str:
@@ -194,27 +189,33 @@ def build_panel_home(user_id: int) -> str:
         if cat["access"] == "owner" and not is_owner:
             continue
         cat_table_rows.append([
-            f"{cat['emoji']} {_esc(cat['title'])}",
-            f"<b>{len(cat['items'])}</b>",
+            f"{cat['emoji']} {cat['title']}",
+            f"{len(cat['items'])}",
         ])
     
-    table = _mk_table(["Category", "Cmds"], cat_table_rows)
+    # Use rich_table directly
+    table = _rich_table(["Category", "Cmds"], cat_table_rows, border=1) if RICH_UI_OK else ""
 
-    body = ""
-    body += f"<h1>🔐 ADMIN PANEL</h1>"
+    body = []
+    # 1. Heading
+    body.append(_rich_heading("🔐 ADMIN PANEL", 1) if RICH_UI_OK else "<h1>🔐 ADMIN PANEL</h1>")
+    # 2. Image
     if BANNER_URL:
-        body += f'<img src="{_esc(BANNER_URL)}" />'
+        body.append(f'<img src="{_esc(BANNER_URL)}" />')
     
-    body += (
-        f"<blockquote>"
-        f"👤 <b>Yᴏᴜʀ Rᴏʟᴇ:</b> {role}\n"
-        f"🆔 <b>ID:</b> <code>{user_id}</code>"
-        f"</blockquote>"
-    )
-    body += f"<h3>📋 CATEGORIES</h3>"
-    body += table
-    body += "<blockquote>💡 Click a button below to view commands</blockquote>"
-    return body
+    # 3. Info
+    body.append(_rich_note(
+        f"👤 <b>Yᴏᴜʀ Rᴏʟᴇ:</b> {role} | 🆔 <b>ID:</b> {_rich_code(user_id) if RICH_UI_OK else user_id}"
+    ) if RICH_UI_OK else f"<blockquote>👤 <b>Yᴏᴜʀ Rᴏʟᴇ:</b> {role} | 🆔 <b>ID:</b> <code>{user_id}</code></blockquote>")
+    
+    # 4. Table
+    body.append(_rich_heading("📋 CATEGORIES", 3) if RICH_UI_OK else "<h3>📋 CATEGORIES</h3>")
+    body.append(table)
+    
+    # 5. Tip
+    body.append(_rich_note("💡 Click a button below to view commands") if RICH_UI_OK else "<blockquote>💡 Click a button below to view commands</blockquote>")
+    
+    return "".join(body)
 
 
 def build_category_view(cat_key: str, user_id: int) -> str:
@@ -231,85 +232,55 @@ def build_category_view(cat_key: str, user_id: int) -> str:
         cmd = item["cmd"]
         args = item.get("args") or ""
         desc = item.get("desc") or ""
+        
+        cmd_str = f"{cmd} {args}".strip()
+        rows.append([cmd_str, desc])
 
-        cmd_str = f"{_esc(cmd)} {_esc(args)}".strip()
-        rows.append([cmd_str, _esc(desc)])
+    table = _rich_table(["Command", "Description"], rows, border=1) if RICH_UI_OK else ""
 
-    table = _mk_table(["Command", "Description"], rows)
-
-    body = ""
-    body += f"<h1>{cat['emoji']} {cat['title']}</h1>"
+    body = []
+    # 1. Heading
+    body.append(_rich_heading(f"{cat['emoji']} {cat['title']}", 1) if RICH_UI_OK else f"<h1>{cat['emoji']} {cat['title']}</h1>")
+    # 2. Image
     if BANNER_URL:
-        body += f'<img src="{_esc(BANNER_URL)}" />'
-    body += f"<blockquote>Total commands: <b>{len(cat['items'])}</b></blockquote>"
-    body += table
-    body += "<blockquote>🔙 Use the button below to go back.</blockquote>"
-    return body
+        body.append(f'<img src="{_esc(BANNER_URL)}" />')
+    # 3. Table
+    body.append(_rich_note(f"Total commands: <b>{len(cat['items'])}</b>") if RICH_UI_OK else f"<blockquote>Total commands: <b>{len(cat['items'])}</b></blockquote>")
+    body.append(table)
+    body.append(_rich_note("🔙 Use the button below to go back.") if RICH_UI_OK else "<blockquote>🔙 Use the button below to go back.</blockquote>")
 
-
-# ══════════════════════════════════════════════════════════════
-# PLAIN FALLBACK (Fixes the <table> crash)
-# ══════════════════════════════════════════════════════════════
-def _plain_fallback(html_text: str) -> str:
-    t = str(html_text)
-    t = re.sub(r'<img\b[^>]*/?>', '', t, flags=re.I)
-    t = re.sub(r'<h[1-6][^>]*>(.*?)</h[1-6]>', r'\n<b>\1</b>\n', t, flags=re.I|re.S)
-    t = re.sub(r'<blockquote[^>]*>(.*?)</blockquote>', r'\n\1\n', t, flags=re.I|re.S)
-    
-    # Convert table to pipes
-    t = re.sub(r'</t[dh]>', ' | ', t, flags=re.I)
-    t = re.sub(r'</tr>', '\n', t, flags=re.I)
-    t = re.sub(r'</?(?:table|thead|tbody|tr|th|td)[^>]*>', '', t, flags=re.I)
-    
-    t = re.sub(r'\s*\|\s*\n', '\n', t)
-    t = re.sub(r'\|\s*$', '', t, flags=re.M)
-    t = re.sub(r'\n{3,}', '\n\n', t)
-    return t.strip()
+    return "".join(body)
 
 
 # ══════════════════════════════════════════════════════════════
 # SEND LOGIC
 # ══════════════════════════════════════════════════════════════
 async def _send(update_or_query, html_text: str, *, kb=None, edit: bool = False):
+    if not (RICH_UI_OK and PYRO_OK):
+        LOGGER.error("[adminpanel] Rich UI not available.")
+        return
+
     if edit:
         q = update_or_query
-        # Try rich edit
-        if RICH_UI_OK and PYRO_OK and _rich_edit:
-            try:
-                res = await _rich_edit(_Waifuu, html_text, chat_id=q.message.chat.id, message_id=q.message.message_id, reply_markup=kb)
-                if res: return
-            except Exception as e:
-                LOGGER.warning(f"[adminpanel] rich edit failed: {e}")
-                
-        # Fallback
         try:
-            await q.edit_message_text(_plain_fallback(html_text), reply_markup=kb, parse_mode='HTML')
+            res = await _rich_edit(
+                _Waifuu, html_text,
+                chat_id=q.message.chat.id, message_id=q.message.message_id, 
+                reply_markup=kb,
+            )
+            if res: return
         except Exception as e:
-            LOGGER.error(f"[adminpanel] fallback edit failed: {e}")
+            LOGGER.error(f"[adminpanel] rich edit failed: {e}")
         return
 
     update = update_or_query
-    chat_id = update.effective_chat.id
-
-    # Try rich send
-    if RICH_UI_OK and PYRO_OK and _rich_send:
-        try:
-            res = await _rich_send(_Waifuu, chat_id, html_text, reply_markup=kb)
-            if res: return
-        except Exception as e:
-            LOGGER.warning(f"[adminpanel] rich send failed: {e}")
-
-    # Fallback (PTB)
     try:
-        await update.message.reply_text(_plain_fallback(html_text), reply_markup=kb, parse_mode='HTML')
+        res = await _rich_send(
+            _Waifuu, update.effective_chat.id, html_text, reply_markup=kb
+        )
+        if res: return
     except Exception as e:
-        LOGGER.error(f"[adminpanel] fallback send failed: {e}")
-        # Ultimate fallback without HTML tags
-        try:
-            clean_text = re.sub(r'<[^>]+>', '', html_text)
-            await update.message.reply_text(clean_text, reply_markup=kb)
-        except Exception:
-            pass
+        LOGGER.error(f"[adminpanel] rich send failed: {e}")
 
 
 # ══════════════════════════════════════════════════════════════
