@@ -34,7 +34,7 @@ from NoxxNetwork import (
 # ══════════════════════════════════════════════════════════════
 # CONFIG
 # ══════════════════════════════════════════════════════════════
-MARKET_IMG_URL = os.getenv("MARKET_IMG_URL", "https://i.ibb.co/8gvNGSbL/26831adc4ea1.jpg")
+MARKET_IMG_URL = os.getenv("MARKET_IMG_URL", "https://i.postimg.cc/9XxY0J7x/file-00000000e6e481f5a6f121928139f51f.png")
 MARKET_TAX_RATE = 0.05
 LISTINGS_PER_PAGE = 10
 LISTING_ID_LEN = 7
