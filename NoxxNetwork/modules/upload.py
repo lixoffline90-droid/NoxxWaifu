@@ -12,6 +12,7 @@ from NoxxNetwork import (
     db,
     CHARA_CHANNEL_ID,
     SUPPORT_CHAT,
+    OWNER_ID,
     LOGGER,
 )
 from NoxxNetwork.rarity import (
@@ -49,6 +50,24 @@ WRONG_FORMAT_TEXT = """Wrong ❌️ format...
 21. 🫧 Special"""
 
 
+# ─────────────────────────────────────────────────────────────
+# Approved uploaders collection
+# ─────────────────────────────────────────────────────────────
+approved_uploaders_col = db['approved_uploaders']
+
+
+def _is_sudo(user_id: int) -> bool:
+    return str(user_id) in (sudo_users or []) or user_id == OWNER_ID
+
+
+async def _can_upload(user_id: int) -> bool:
+    """Sudo/Owner OR approved uploader."""
+    if _is_sudo(user_id):
+        return True
+    doc = await approved_uploaders_col.find_one({'user_id': int(user_id)})
+    return doc is not None
+
+
 def _clear_inline_cache():
     """Clear the inline query character cache so new uploads appear immediately."""
     try:
@@ -72,10 +91,10 @@ async def get_next_sequence_number(sequence_name):
 
 
 # ---------------------------------------------------------------------------
-# /upload
+# /upload — Sudo/Owner OR approved uploader
 # ---------------------------------------------------------------------------
 async def upload(update: Update, context: CallbackContext) -> None:
-    if str(update.effective_user.id) not in sudo_users:
+    if not await _can_upload(update.effective_user.id):
         await update.message.reply_text('Ask My Owner...')
         return
 
@@ -129,7 +148,6 @@ async def upload(update: Update, context: CallbackContext) -> None:
             character['message_id'] = message.message_id
             await collection.insert_one(character)
 
-            # 🔥 Clear inline cache so new character shows up immediately
             _clear_inline_cache()
 
             await update.message.reply_text(
@@ -140,7 +158,6 @@ async def upload(update: Update, context: CallbackContext) -> None:
             LOGGER.warning(f"Channel send failed, saving to DB only: {channel_error}")
             await collection.insert_one(character)
 
-            # 🔥 Clear inline cache
             _clear_inline_cache()
 
             await update.message.reply_text(
@@ -156,10 +173,10 @@ async def upload(update: Update, context: CallbackContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# DELETE — Bulletproof: DB delete is ALWAYS priority
+# DELETE — Sudo/Owner only
 # ---------------------------------------------------------------------------
 async def delete(update: Update, context: CallbackContext) -> None:
-    if str(update.effective_user.id) not in sudo_users:
+    if not _is_sudo(update.effective_user.id):
         await update.message.reply_text('Ask my Owner to use this Command...')
         return
 
@@ -171,7 +188,6 @@ async def delete(update: Update, context: CallbackContext) -> None:
 
         raw_id = str(args[0]).strip()
 
-        # Try multiple ID variants
         character = None
         candidates = [raw_id, raw_id.zfill(2), raw_id.lstrip('0') or '0']
         for candidate in candidates:
@@ -191,13 +207,11 @@ async def delete(update: Update, context: CallbackContext) -> None:
         character_name = character.get('name', 'Unknown')
         old_message_id = character.get('message_id')
 
-        # 1️⃣ Delete from main characters collection (ALWAYS)
         delete_result = await collection.delete_one({'id': character_id})
         if delete_result.deleted_count == 0:
             await update.message.reply_text("❌ Failed to delete from database.")
             return
 
-        # 2️⃣ Pull from ALL user collections
         removed_from_users = 0
         try:
             result = await user_collection.update_many(
@@ -208,7 +222,6 @@ async def delete(update: Update, context: CallbackContext) -> None:
         except Exception as e:
             LOGGER.warning(f"Failed to pull from user collections: {e}")
 
-        # 3️⃣ Try channel delete (best effort)
         channel_status = "ℹ️ No channel message linked"
         if old_message_id:
             try:
@@ -226,10 +239,8 @@ async def delete(update: Update, context: CallbackContext) -> None:
                 else:
                     channel_status = f"⚠️ Channel delete failed"
 
-        # 🔥 Clear inline cache
         _clear_inline_cache()
 
-        # 4️⃣ Report
         lines = [
             "✅ <b>Character Deleted</b>",
             "",
@@ -246,10 +257,10 @@ async def delete(update: Update, context: CallbackContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# /update <id> <field> <value>
+# /update — Sudo/Owner OR approved uploader
 # ---------------------------------------------------------------------------
 async def update_character(update: Update, context: CallbackContext) -> None:
-    if str(update.effective_user.id) not in sudo_users:
+    if not await _can_upload(update.effective_user.id):
         await update.message.reply_text('You do not have permission to use this command.')
         return
 
@@ -341,7 +352,6 @@ async def update_character(update: Update, context: CallbackContext) -> None:
                 except Exception as e:
                     LOGGER.warning(f"Channel caption edit failed (channel changed?): {e}")
 
-        # 🔥 Clear inline cache
         _clear_inline_cache()
 
         await update.message.reply_text(
@@ -355,10 +365,10 @@ async def update_character(update: Update, context: CallbackContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# /resync — re-upload all characters to current channel
+# /resync — Sudo/Owner only
 # ---------------------------------------------------------------------------
 async def resync_channel(update: Update, context: CallbackContext) -> None:
-    if str(update.effective_user.id) not in sudo_users:
+    if not _is_sudo(update.effective_user.id):
         await update.message.reply_text('Ask my Owner to use this Command...')
         return
 
@@ -420,10 +430,10 @@ async def resync_channel(update: Update, context: CallbackContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Rarity probability
+# Rarity probability — Sudo/Owner only
 # ---------------------------------------------------------------------------
 async def set_rarity_probability(update: Update, context: CallbackContext) -> None:
-    if str(update.effective_user.id) not in sudo_users:
+    if not _is_sudo(update.effective_user.id):
         await update.message.reply_text("Ask My Owner...")
         return
     if len(context.args) != 2:
