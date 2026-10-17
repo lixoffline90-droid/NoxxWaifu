@@ -223,8 +223,8 @@ async def inlinequery(update: Update, context: CallbackContext) -> None:
 
                 caption = (
                     f"<b>OᴡO! Cʜᴀʀᴀᴄᴛᴇʀ Dɪsᴄᴏᴠᴇʀᴇᴅ!!</b>\n\n"
-                    f"<b>◈ Sᴇʀɪᴇs:</b>{escape(str(char_anime))}</b>\n"
-                    f"<b>♡</b>{escape(char_id)}:{escape(str(char_name))}\n\n"
+                    f"<b>◈ Sᴇʀɪᴇs:</b> {escape(str(char_anime))}\n"  # 🔥 Fix: extra </b> removed & added space
+                    f"<b>♡</b> {escape(char_id)}:{escape(str(char_name))}\n\n"
                     f"<b>❖ Rᴀʀɪᴛʏ ➠</b> ( {escape(str(char_rarity))} )\n\n"
                     f"<b>⌁ Gʟᴏʙᴀʟ Cᴀᴛᴄʜᴇs : {global_count} Tɪᴍᴇs...</b>"
                 )
