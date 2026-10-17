@@ -35,16 +35,16 @@ async def trade(update: Update, context: CallbackContext) -> None:
     sender_id = update.effective_user.id
 
     if not message.reply_to_message or not message.reply_to_message.from_user:
-        await message.reply_text("Rᴇᴘʟʏ ᴛᴏ ᴛʜᴇ ᴜsᴇʀ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ᴛʀᴀᴅᴇ ᴡɪᴛʜ.")
+        await message.reply_text("Reply to the user you want to trade with.")
         return
 
     receiver_id = message.reply_to_message.from_user.id
     if sender_id == receiver_id:
-        await message.reply_text("Yᴏᴜ ᴄᴀɴ'ᴛ ᴛʀᴀᴅᴇ ᴀ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴡɪᴛʜ ʏᴏᴜʀsᴇʟғ!")
+        await message.reply_text("You can't trade a character with yourself!")
         return
 
     if len(context.args) != 2:
-        await message.reply_text("U sᴀɢᴇ: /trade <your_id> <their_id>")
+        await message.reply_text("Usage: /trade <your_id> <their_id>")
         return
 
     sender_character_id = str(context.args[0])
@@ -54,7 +54,7 @@ async def trade(update: Update, context: CallbackContext) -> None:
     receiver = await user_collection.find_one({'id': receiver_id})
 
     if not sender or not receiver:
-        await message.reply_text("Bᴏᴛʜ ᴜsᴇʀs ᴍᴜsᴛ ʜᴀᴠᴇ ᴀ ᴄᴏʟʟᴇᴄᴛɪᴏɴ.")
+        await message.reply_text("Both users must have a collection.")
         return
 
     sender_character = next(
@@ -67,10 +67,10 @@ async def trade(update: Update, context: CallbackContext) -> None:
     )
 
     if not sender_character:
-        await message.reply_text("Yᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴛʜᴀᴛ ᴄʜᴀʀᴀᴄᴛᴇʀ.")
+        await message.reply_text("You don't have that character.")
         return
     if not receiver_character:
-        await message.reply_text("Tʜᴇ ᴏᴛʜᴇʀ ᴜsᴇʀ ᴅᴏᴇsɴ'ᴛ ʜᴀᴠᴇ ᴛʜᴀᴛ ᴄʜᴀʀᴀᴄᴛᴇʀ.")
+        await message.reply_text("The other user doesn't have that character.")
         return
 
     token = uuid.uuid4().hex[:10]
@@ -82,15 +82,15 @@ async def trade(update: Update, context: CallbackContext) -> None:
     }
 
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Cᴏɴғɪʀᴍ Tʀᴀᴅᴇ", callback_data=f"trade:confirm:{sender_id}:{receiver_id}:{token}")],
-        [InlineKeyboardButton("❌ Cᴀɴᴄᴇʟ Tʀᴀᴅᴇ", callback_data=f"trade:cancel:{sender_id}:{receiver_id}:{token}")],
+        [InlineKeyboardButton("✅ Confirm Trade", callback_data=f"trade:confirm:{sender_id}:{receiver_id}:{token}")],
+        [InlineKeyboardButton("❌ Cancel Trade", callback_data=f"trade:cancel:{sender_id}:{receiver_id}:{token}")],
     ])
 
     await message.reply_text(
-        f"🤝 <b>Tʀᴀᴅᴇ Rᴇǫᴜᴇsᴛ</b>\n\n"
-        f"Yᴏᴜ ᴏғғᴇʀ: <b>{escape(str(sender_character.get('name', 'Unknown')))}</b>\n"
-        f"Yᴏᴜ ʀᴇᴄᴇɪᴠᴇ: <b>{escape(str(receiver_character.get('name', 'Unknown')))}</b>\n\n"
-        f"Tʜᴇ ᴛʀᴀᴅᴇ ᴇxᴘɪʀᴇs ɪɴ 2 ᴍɪɴᴜᴛᴇs.",
+        f"🤝 <b>Trade Request</b>\n\n"
+        f"You offer: <b>{escape(str(sender_character.get('name', 'Unknown')))}</b>\n"
+        f"You receive: <b>{escape(str(receiver_character.get('name', 'Unknown')))}</b>\n\n"
+        f"The trade expires in 2 minutes.",
         parse_mode='HTML',
         reply_markup=markup,
     )
@@ -122,7 +122,7 @@ async def trade_callback(update: Update, context: CallbackContext) -> None:
         pending_trades.pop(key, None)
         await query.answer("This trade has expired.", show_alert=True)
         try:
-            await query.message.edit_text("❌ Tʀᴀᴅᴇ Exᴘɪʀᴇᴅ")
+            await query.message.edit_text("❌ Trade Expired")
         except Exception:
             pass
         return
@@ -131,7 +131,7 @@ async def trade_callback(update: Update, context: CallbackContext) -> None:
         pending_trades.pop(key, None)
         await query.answer("Trade cancelled.")
         try:
-            await query.message.edit_text("❌ Tʀᴀᴅᴇ Cᴀɴᴄᴇʟʟᴇᴅ")
+            await query.message.edit_text("❌ Trade Cancelled")
         except Exception:
             pass
         return
@@ -170,13 +170,13 @@ async def trade_callback(update: Update, context: CallbackContext) -> None:
 
     await query.answer("Trade completed!")
     try:
-        await query.message.edit_text("🤝 Tʀᴀᴅᴇ Cᴏᴍᴘʟᴇᴛᴇᴅ Sᴜᴄᴄᴇssғᴜʟʟʏ! ✅")
+        await query.message.edit_text("🤝 Trade Completed Successfully! ✅")
     except Exception:
         pass
 
 
 # ---------------------------------------------------------------------------
-# GIFT  —  sudo/owner kisi bhi character ko gift kar sakte hain
+# GIFT — sudo/owner can gift anyone (including self), normal user cannot
 # ---------------------------------------------------------------------------
 async def gift(update: Update, context: CallbackContext) -> None:
     message = update.effective_message
@@ -184,48 +184,49 @@ async def gift(update: Update, context: CallbackContext) -> None:
     sender_id = sender.id
 
     if not message.reply_to_message or not message.reply_to_message.from_user:
-        await message.reply_text("Rᴇᴘʟʏ ᴛᴏ ᴛʜᴇ ᴜsᴇʀ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ɢɪғᴛ ᴛᴏ.")
+        await message.reply_text("Reply to the user you want to gift to.")
         return
 
     receiver = message.reply_to_message.from_user
     receiver_id = receiver.id
 
-    if sender_id == receiver_id:
-        await message.reply_text("Yᴏᴜ ᴄᴀɴ'ᴛ ɢɪғᴛ ᴀ ᴄʜᴀʀᴀᴄᴛᴇʀ ᴛᴏ ʏᴏᴜʀsᴇʟғ!")
+    is_sudo = _is_sudo(sender_id)
+
+    # 🔥 Self-gift check:
+    #   - Normal users: blocked
+    #   - Sudo/Owner: allowed
+    if sender_id == receiver_id and not is_sudo:
+        await message.reply_text("You can't gift a character to yourself!")
         return
 
     if len(context.args) != 1:
-        await message.reply_text("U sᴀɢᴇ: /gift <character_id>")
+        await message.reply_text("Usage: /gift <character_id>")
         return
 
     character_id = str(context.args[0]).strip()
 
-    is_sudo = _is_sudo(sender_id)
-
-    # ─── Find character ────────────────────────────────────────────────
+    # ─── Find character ────────────────────────────────────────
     if is_sudo:
-        # Sudo/Owner: kisi bhi character ko gift kar sakte hain (chahe unke paas ho ya na ho)
+        # Sudo/Owner: any character from DB (even if not owned)
         character = await collection.find_one({'id': character_id})
         if not character:
-            # try zero-padded
             character = await collection.find_one({'id': character_id.zfill(2)})
         if not character:
-            # try stripped
             character = await collection.find_one({'id': character_id.lstrip('0') or '0'})
 
         if not character:
             await message.reply_text(
-                f"❌ Cʜᴀʀᴀᴄᴛᴇʀ ᴡɪᴛʜ ID <code>{character_id}</code> ɴᴏᴛ ғᴏᴜɴᴅ ɪɴ ᴅᴀᴛᴀʙᴀsᴇ.",
+                f"❌ Character with ID <code>{character_id}</code> not found in database.",
                 parse_mode='HTML',
             )
             return
 
-        source_collection_owned = False  # sudo kisi ke bhi paas se nahi le rahe
+        source_collection_owned = False  # sudo: spawned from DB, not from their harem
     else:
-        # Normal user: sirf apni collection se
+        # Normal user: only from their own collection
         sender_doc = await user_collection.find_one({'id': sender_id})
         if not sender_doc or not sender_doc.get('characters'):
-            await message.reply_text("Yᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴀɴʏ ᴄʜᴀʀᴀᴄᴛᴇʀs.")
+            await message.reply_text("You don't have any characters.")
             return
 
         character = next(
@@ -233,11 +234,11 @@ async def gift(update: Update, context: CallbackContext) -> None:
             None,
         )
         if not character:
-            await message.reply_text("Yᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴛʜɪs ᴄʜᴀʀᴀᴄᴛᴇʀ.")
+            await message.reply_text("You don't have this character.")
             return
         source_collection_owned = True
 
-    # ─── Build pending gift ────────────────────────────────────────────
+    # ─── Build pending gift ────────────────────────────────────
     token = uuid.uuid4().hex[:10]
     key = (sender_id, receiver_id, token)
 
@@ -245,7 +246,8 @@ async def gift(update: Update, context: CallbackContext) -> None:
         'character': character,
         'receiver_username': receiver.username,
         'receiver_first_name': receiver.first_name or 'User',
-        'sender_owned': source_collection_owned,   # True = remove from sender; False = sudo gift (spawn-like)
+        'sender_owned': source_collection_owned,
+        'is_self_gift': sender_id == receiver_id,
         'expires_at': time.monotonic() + 120,
     }
     pending_gifts[key] = gift_data
@@ -260,20 +262,22 @@ async def gift(update: Update, context: CallbackContext) -> None:
 
     caption = (
         f"<b>{name}</b>\n"
-        f"Rᴀʀɪᴛʏ: {symbol} {rarity}\n"
-        f"Aɴɪᴍᴇ: {escape(str(character.get('anime', 'Unknown')))}\n"
+        f"Rarity: {symbol} {rarity}\n"
+        f"Anime: {escape(str(character.get('anime', 'Unknown')))}\n"
         f"ID: {escape(str(character.get('id', character_id)))}"
     )
     if not source_collection_owned:
-        caption += "\n\n<i>👑 Sᴜᴅᴏ Gɪғᴛ — ɴᴏɴ-ᴏᴡɴᴇʀ sᴘᴀᴡɴ</i>"
+        caption += "\n\n<i>👑 Sudo Gift — non-owner spawn</i>"
+    if sender_id == receiver_id:
+        caption += "\n\n<i>🪞 Self-gift — duplicate will be added to your harem</i>"
 
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton(
-            "✅ Cᴏɴғɪʀᴍ Gɪғᴛ",
+            "✅ Confirm Gift",
             callback_data=_gift_key(sender_id, receiver_id, token) + ':confirm',
         )],
         [InlineKeyboardButton(
-            "❌ Cᴀɴᴄᴇʟ Gɪғᴛ",
+            "❌ Cancel Gift",
             callback_data=_gift_key(sender_id, receiver_id, token) + ':cancel',
         )],
     ])
@@ -302,7 +306,7 @@ async def _expire_gift(context: CallbackContext, key, gift_data):
         return
     pending_gifts.pop(key, None)
 
-    text = "❌ <b>Gɪғᴛ Exᴘɪʀᴇᴅ</b>\n\nTʜᴇ 2-ᴍɪɴᴜᴛᴇ ᴛɪᴍᴇʟɪᴍɪᴛ ʜᴀs ᴘᴀssᴇᴅ."
+    text = "❌ <b>Gift Expired</b>\n\nThe 2-minute timelimit has passed."
     try:
         await context.bot.edit_message_caption(
             chat_id=gift_data['chat_id'],
@@ -336,7 +340,6 @@ async def gift_callback(update: Update, context: CallbackContext) -> None:
     _, sender_id_s, receiver_id_s, token, action = parts
     sender_id, receiver_id = int(sender_id_s), int(receiver_id_s)
 
-    # Only sender can confirm/cancel
     if query.from_user.id != sender_id:
         await query.answer("Only the sender can confirm this gift.", show_alert=True)
         return
@@ -358,21 +361,22 @@ async def gift_callback(update: Update, context: CallbackContext) -> None:
         await query.answer("Gift cancelled.")
         try:
             await query.message.edit_caption(
-                "❌ <b>Gɪғᴛ Cᴀɴᴄᴇʟʟᴇᴅ</b>\n\nTʜᴇ ᴄʜᴀʀᴀᴄᴛᴇʀ ʜᴀs ɴᴏᴛ ʙᴇᴇɴ sᴇɴᴛ.",
+                "❌ <b>Gift Cancelled</b>\n\nThe character has not been sent.",
                 parse_mode='HTML',
                 reply_markup=None,
             )
         except Exception:
             try:
-                await query.message.edit_text("❌ Gɪғᴛ Cᴀɴᴄᴇʟʟᴇᴅ", reply_markup=None)
+                await query.message.edit_text("❌ Gift Cancelled", reply_markup=None)
             except Exception:
                 pass
         return
 
     character = gift_data['character']
     sender_owned = gift_data.get('sender_owned', True)
+    is_self_gift = gift_data.get('is_self_gift', False)
 
-    # ─── Remove from sender's collection ONLY if sender owned it ─────
+    # ─── Remove from sender's collection ONLY if sender owned it ─
     if sender_owned:
         sender_doc = await user_collection.find_one({'id': sender_id})
         if not sender_doc:
@@ -395,7 +399,9 @@ async def gift_callback(update: Update, context: CallbackContext) -> None:
             {'id': sender_id}, {'$set': {'characters': sender_chars}}
         )
 
-    # ─── Add to receiver ─────────────────────────────────────────────
+    # ─── Add to receiver ──────────────────────────────────────
+    # For self-gift (sudo only), sender_owned is always False,
+    # so we simply push the character again (duplicate).
     receiver_doc = await user_collection.find_one({'id': receiver_id})
     if receiver_doc:
         await user_collection.update_one(
@@ -417,7 +423,11 @@ async def gift_callback(update: Update, context: CallbackContext) -> None:
         f'<a href="tg://user?id={receiver_id}">'
         f'{escape(gift_data["receiver_first_name"])}</a>'
     )
-    success = f"🎁 <b>Gɪғᴛ sᴜᴄᴄᴇssғᴜʟʟʏ sᴇɴᴛ ᴛᴏ</b>\n{receiver_mention}"
+
+    if is_self_gift:
+        success = f"🎁 <b>Self-gift complete</b>\nA copy of the character has been added to your harem."
+    else:
+        success = f"🎁 <b>Gift successfully sent to</b>\n{receiver_mention}"
 
     try:
         await query.message.edit_caption(success, parse_mode='HTML', reply_markup=None)
