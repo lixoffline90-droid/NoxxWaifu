@@ -1,10 +1,5 @@
 """
-Admin Panel — Interactive list with Rich UI banner.
-
-Commands:
-    /adminpanel      — Open the panel (Owner/Sudo only)
-    /adminhelp       — Alias
-    /commands        — Alias
+Admin Panel — Interactive list with Rich UI banner. (Rich only, no fallback)
 """
 import os
 from html import escape
@@ -25,17 +20,14 @@ from NoxxNetwork import (
     LOGGER,
 )
 
-# ─── Rich UI (optional) ───────────────────────────────────────
+# ─── Rich UI (required) ───────────────────────────────────────
 RICH_UI_OK = False
 _rich_send = _rich_edit = None
-_rich_esc = _rich_heading = None
 
 try:
     from NoxxNetwork.rich_ui_decoded import (
         rich_send as _rich_send,
         rich_edit as _rich_edit,
-        rich_esc as _rich_esc,
-        rich_heading as _rich_heading,
     )
     RICH_UI_OK = True
     LOGGER.info("[adminpanel] rich_ui loaded ✅")
@@ -52,7 +44,7 @@ PYRO_OK = _Waifuu is not None
 # ─── Banner ───────────────────────────────────────────────────
 BANNER_URL = os.getenv(
     "ADMIN_BANNER_URL",
-    "https://i.postimg.cc/4xbpV50S/file-00000000598481f5b548a8852c1a0b63.png"
+    "https://i.ibb.co/tFnrhjh/843803f5a80f.jpg"
 )
 
 
@@ -73,20 +65,13 @@ CATEGORIES = {
         "title": "CHARACTER MANAGEMENT",
         "access": "sudo",
         "items": [
-            {"cmd": "/upload", "alias": None, "args": "<url> <name> <anime> <rarity>",
-             "desc": "Add a new character"},
-            {"cmd": "/update", "alias": None, "args": "<id> <field> <value>",
-             "desc": "Edit a character's field"},
-            {"cmd": "/delete", "alias": None, "args": "<id>",
-             "desc": "Delete a character (DB + users + channel)"},
-            {"cmd": "/resync", "alias": None, "args": "—",
-             "desc": "Re-upload all chars to current channel"},
-            {"cmd": "/setrarity", "alias": "setrarityprob", "args": "<id> <prob>",
-             "desc": "Change a rarity's probability"},
-            {"cmd": "/rarities", "alias": None, "args": "—",
-             "desc": "Show all rarity probabilities"},
-            {"cmd": "/charkill", "alias": None, "args": "<id> (reply)",
-             "desc": "Remove a char from a user's harem"},
+            {"cmd": "/upload", "alias": None, "args": "<url> <name> <anime> <rarity>", "desc": "Add a new character"},
+            {"cmd": "/update", "alias": None, "args": "<id> <field> <value>", "desc": "Edit a character's field"},
+            {"cmd": "/delete", "alias": None, "args": "<id>", "desc": "Delete a character"},
+            {"cmd": "/resync", "alias": None, "args": "—", "desc": "Re-upload all chars to channel"},
+            {"cmd": "/setrarity", "alias": "setrarityprob", "args": "<id> <prob>", "desc": "Change a rarity's probability"},
+            {"cmd": "/rarities", "alias": None, "args": "—", "desc": "Show all rarity probabilities"},
+            {"cmd": "/charkill", "alias": None, "args": "<id> (reply)", "desc": "Remove char from user's harem"},
         ],
     },
     "spawn": {
@@ -94,10 +79,8 @@ CATEGORIES = {
         "title": "SPAWN CONTROL",
         "access": "sudo",
         "items": [
-            {"cmd": "/spawn", "alias": None, "args": "<id> <freq> <Main/global>",
-             "desc": "Set rarity spawn rate + scope"},
-            {"cmd": "/changetime", "alias": "setchangetime", "args": "<num>",
-             "desc": "Set group spawn frequency"},
+            {"cmd": "/spawn", "alias": None, "args": "<id> <freq> <Main/global>", "desc": "Set rarity spawn rate"},
+            {"cmd": "/changetime", "alias": "setchangetime", "args": "<num>", "desc": "Set group spawn frequency"},
         ],
     },
     "ban": {
@@ -105,16 +88,11 @@ CATEGORIES = {
         "title": "BAN SYSTEM",
         "access": "sudo",
         "items": [
-            {"cmd": "/banuser", "alias": None, "args": "<id> or reply",
-             "desc": "Ban a user"},
-            {"cmd": "/unbanuser", "alias": None, "args": "<id> or reply",
-             "desc": "Unban a user"},
-            {"cmd": "/bangroup", "alias": None, "args": "<group_id>",
-             "desc": "Ban a group"},
-            {"cmd": "/unbangroup", "alias": None, "args": "<group_id>",
-             "desc": "Unban a group"},
-            {"cmd": "/bannedlist", "alias": None, "args": "—",
-             "desc": "List all banned users/groups"},
+            {"cmd": "/banuser", "alias": None, "args": "<id> or reply", "desc": "Ban a user"},
+            {"cmd": "/unbanuser", "alias": None, "args": "<id> or reply", "desc": "Unban a user"},
+            {"cmd": "/bangroup", "alias": None, "args": "<group_id>", "desc": "Ban a group"},
+            {"cmd": "/unbangroup", "alias": None, "args": "<group_id>", "desc": "Unban a group"},
+            {"cmd": "/bannedlist", "alias": None, "args": "—", "desc": "List all banned users/groups"},
         ],
     },
     "coins": {
@@ -122,10 +100,8 @@ CATEGORIES = {
         "title": "COIN MANAGEMENT",
         "access": "sudo",
         "items": [
-            {"cmd": "/wadd", "alias": "addcoins", "args": "<amount> (reply)",
-             "desc": "Add coins to a user"},
-            {"cmd": "/wremove", "alias": "removecoins", "args": "<amount> (reply)",
-             "desc": "Remove coins from a user"},
+            {"cmd": "/wadd", "alias": "addcoins", "args": "<amount> (reply)", "desc": "Add coins to user"},
+            {"cmd": "/wremove", "alias": "removecoins", "args": "<amount> (reply)", "desc": "Remove coins from user"},
         ],
     },
     "market": {
@@ -133,10 +109,8 @@ CATEGORIES = {
         "title": "MARKETPLACE MODERATION",
         "access": "sudo",
         "items": [
-            {"cmd": "/marketstats", "alias": None, "args": "—",
-             "desc": "View active, sold, cancelled, tax pot"},
-            {"cmd": "/TransferHarem", "alias": "transferharem, tharem",
-             "args": "<from_id> <to_id>", "desc": "Transfer full harem"},
+            {"cmd": "/marketstats", "alias": None, "args": "—", "desc": "View market stats"},
+            {"cmd": "/TransferHarem", "alias": "transferharem, tharem", "args": "<from_id> <to_id>", "desc": "Transfer full harem"},
         ],
     },
     "redeem": {
@@ -144,12 +118,9 @@ CATEGORIES = {
         "title": "REDEEM CODES",
         "access": "sudo",
         "items": [
-            {"cmd": "/create_code", "alias": "createcode", "args": "<char_id> [max_uses]",
-             "desc": "Create a redeem code"},
-            {"cmd": "/codes", "alias": "codelist", "args": "—",
-             "desc": "List active redeem codes"},
-            {"cmd": "/delcode", "alias": None, "args": "<code>",
-             "desc": "Delete a redeem code"},
+            {"cmd": "/create_code", "alias": "createcode", "args": "<char_id> [max_uses]", "desc": "Create a redeem code"},
+            {"cmd": "/codes", "alias": "codelist", "args": "—", "desc": "List active redeem codes"},
+            {"cmd": "/delcode", "alias": None, "args": "<code>", "desc": "Delete a redeem code"},
         ],
     },
     "approval": {
@@ -157,12 +128,9 @@ CATEGORIES = {
         "title": "APPROVAL SYSTEM",
         "access": "sudo",
         "items": [
-            {"cmd": "/wallow", "alias": None, "args": "<id> or reply",
-             "desc": "Give upload/update access"},
-            {"cmd": "/wdeny", "alias": None, "args": "<id> or reply",
-             "desc": "Revoke upload/update access"},
-            {"cmd": "/approvedlist", "alias": None, "args": "—",
-             "desc": "List all approved uploaders"},
+            {"cmd": "/wallow", "alias": None, "args": "<id> or reply", "desc": "Give upload access"},
+            {"cmd": "/wdeny", "alias": None, "args": "<id> or reply", "desc": "Revoke upload access"},
+            {"cmd": "/approvedlist", "alias": None, "args": "—", "desc": "List approved uploaders"},
         ],
     },
     "gift": {
@@ -170,10 +138,8 @@ CATEGORIES = {
         "title": "GIFT (SPECIAL POWERS)",
         "access": "sudo",
         "items": [
-            {"cmd": "/gift", "alias": None, "args": "<id> (reply to self)",
-             "desc": "Self-gift: add copy to your harem"},
-            {"cmd": "/gift", "alias": None, "args": "<id> (reply to any)",
-             "desc": "Gift any char (even if not owned)"},
+            {"cmd": "/gift", "alias": None, "args": "<id> (reply to self)", "desc": "Self-gift: add copy to harem"},
+            {"cmd": "/gift", "alias": None, "args": "<id> (reply to any)", "desc": "Gift any char"},
         ],
     },
     "misc": {
@@ -181,12 +147,9 @@ CATEGORIES = {
         "title": "MISC / UTILITIES",
         "access": "sudo",
         "items": [
-            {"cmd": "/ping", "alias": None, "args": "—",
-             "desc": "Bot latency check"},
-            {"cmd": "/list", "alias": None, "args": "—",
-             "desc": "Download users list"},
-            {"cmd": "/groups", "alias": None, "args": "—",
-             "desc": "Download groups list"},
+            {"cmd": "/ping", "alias": None, "args": "—", "desc": "Bot latency check"},
+            {"cmd": "/list", "alias": None, "args": "—", "desc": "Download users list"},
+            {"cmd": "/groups", "alias": None, "args": "—", "desc": "Download groups list"},
         ],
     },
     "owner": {
@@ -194,23 +157,18 @@ CATEGORIES = {
         "title": "OWNER-ONLY",
         "access": "owner",
         "items": [
-            {"cmd": "/broadcast", "alias": None, "args": "(reply)",
-             "desc": "Broadcast to all groups/users"},
-            {"cmd": "/stats", "alias": None, "args": "—",
-             "desc": "Bot statistics"},
-            {"cmd": "/e /ev /eva /eval", "alias": None, "args": "<code>",
-             "desc": "Python eval (dev only)"},
-            {"cmd": "/x /ex /exe /exec /py", "alias": None, "args": "<code>",
-             "desc": "Python exec (dev only)"},
-            {"cmd": "/clearlocals", "alias": None, "args": "—",
-             "desc": "Clear eval namespaces"},
+            {"cmd": "/broadcast", "alias": None, "args": "(reply)", "desc": "Broadcast to all"},
+            {"cmd": "/stats", "alias": None, "args": "—", "desc": "Bot statistics"},
+            {"cmd": "/e /ev /eva /eval", "alias": None, "args": "<code>", "desc": "Python eval"},
+            {"cmd": "/x /ex /exe /exec /py", "alias": None, "args": "<code>", "desc": "Python exec"},
+            {"cmd": "/clearlocals", "alias": None, "args": "—", "desc": "Clear eval namespaces"},
         ],
     },
 }
 
 
 # ══════════════════════════════════════════════════════════════
-# BUILDERS
+# BUILDERS (Rich HTML — with table)
 # ══════════════════════════════════════════════════════════════
 def _esc(v) -> str:
     if v is None:
@@ -229,12 +187,10 @@ def _mk_table(rows, headers=None):
     return "".join(parts)
 
 
-# ─── PANEL HOME (HEADING FIRST → IMAGE SECOND) ────────────────
 def build_panel_home(user_id: int) -> str:
     is_owner = _is_owner(user_id)
     role = "👑 Oᴡɴᴇʀ" if is_owner else "🛡️ Sᴜᴅᴏ"
 
-    # Category table
     cat_table_rows = []
     for key, cat in CATEGORIES.items():
         if cat["access"] == "owner" and not is_owner:
@@ -246,12 +202,9 @@ def build_panel_home(user_id: int) -> str:
     cat_table = _mk_table(cat_table_rows, ["Category", "Cmds"])
 
     body = ""
-    # 1. Heading FIRST
-    body += f"<h1>🔐 ADMIN PANEL</h1>"
-    # 2. Image SECOND
+    body += "<h1>🔐 ADMIN PANEL</h1>"
     if BANNER_URL:
         body += f'<img src="{_esc(BANNER_URL)}" />'
-    # 3. Welcome blockquote
     body += (
         f"<blockquote>"
         f"👤 <b>Yᴏᴜʀ Rᴏʟᴇ:</b> {role}\n"
@@ -259,14 +212,12 @@ def build_panel_home(user_id: int) -> str:
         f"Pick a category below to view its commands + aliases."
         f"</blockquote>"
     )
-    # 4. Categories table
     body += f"<h3>📋 CATEGORIES</h3>"
     body += cat_table
     body += "<blockquote>💡 Click a button below to view commands</blockquote>"
     return body
 
 
-# ─── CATEGORY VIEW (HEADING FIRST → IMAGE SECOND) ─────────────
 def build_category_view(cat_key: str, user_id: int) -> str:
     cat = CATEGORIES.get(cat_key)
     if not cat:
@@ -276,7 +227,6 @@ def build_category_view(cat_key: str, user_id: int) -> str:
     if cat["access"] == "owner" and not is_owner:
         return "<h2>⛔ OWNER-ONLY</h2><blockquote>This section is restricted.</blockquote>"
 
-    # Command table
     rows = []
     for item in cat["items"]:
         cmd = item["cmd"]
@@ -294,12 +244,9 @@ def build_category_view(cat_key: str, user_id: int) -> str:
     table = _mk_table(rows, ["Command", "Description"])
 
     body = ""
-    # 1. Heading FIRST
     body += f"<h1>{cat['emoji']} {cat['title']}</h1>"
-    # 2. Image SECOND
     if BANNER_URL:
         body += f'<img src="{_esc(BANNER_URL)}" />'
-    # 3. Info + table
     body += f"<blockquote>Total commands: <b>{len(cat['items'])}</b></blockquote>"
     body += table
     body += "<blockquote>🔙 Use the button below to go back.</blockquote>"
@@ -307,81 +254,46 @@ def build_category_view(cat_key: str, user_id: int) -> str:
 
 
 # ══════════════════════════════════════════════════════════════
-# RICH SEND / EDIT
+# RICH SEND (no plain fallback)
 # ══════════════════════════════════════════════════════════════
-def _plain(html_text: str) -> str:
-    import re
-    t = str(html_text)
-    t = re.sub(r'<img\b[^>]*/?>', '', t, flags=re.I)
-    t = re.sub(r'<h[1-6][^>]*>(.*?)</h[1-6]>', r'\n<b>\1</b>\n', t, flags=re.I | re.S)
-    t = re.sub(r'<blockquote[^>]*>(.*?)</blockquote>', r'\n\1\n', t, flags=re.I | re.S)
-    t = re.sub(r'</t[dh]>', ' | ', t, flags=re.I)
-    t = re.sub(r'</tr>', '\n', t, flags=re.I)
-    t = re.sub(r'</?(?:table|thead|tbody|tr|th|td)[^>]*>', '', t, flags=re.I)
-    t = re.sub(r'\n{3,}', '\n\n', t)
-    return t.strip()
-
-
 async def _send_panel(update_or_query, html_text: str, *, kb=None, edit: bool = False):
+    if not (RICH_UI_OK and PYRO_OK):
+        LOGGER.error("[adminpanel] rich_ui not available — cannot send")
+        if hasattr(update_or_query, 'message'):
+            # For callback, ignore
+            try:
+                await update_or_query.answer("Rich UI unavailable.", show_alert=True)
+            except Exception:
+                pass
+        return
+
     # ── Edit mode ──
     if edit and hasattr(update_or_query, 'message'):
         q = update_or_query
         chat_id = q.message.chat.id
         msg_id = q.message.message_id
 
-        if RICH_UI_OK and PYRO_OK and _rich_edit is not None:
-            try:
-                result = await _rich_edit(
-                    _Waifuu, html_text,
-                    chat_id=chat_id, message_id=msg_id, reply_markup=kb,
-                )
-                if result:
-                    return
-            except Exception as e:
-                LOGGER.warning(f"[adminpanel] rich edit failed: {e}")
-
-        plain = _plain(html_text)
         try:
-            if q.message.photo:
-                await q.edit_message_caption(
-                    caption=plain[:1024], reply_markup=kb, parse_mode='HTML',
-                )
-            else:
-                await q.edit_message_text(plain, reply_markup=kb, parse_mode='HTML')
-            return
+            result = await _rich_edit(
+                _Waifuu, html_text,
+                chat_id=chat_id, message_id=msg_id, reply_markup=kb,
+            )
+            if not result:
+                LOGGER.error("[adminpanel] rich edit returned None")
         except Exception as e:
-            LOGGER.warning(f"[adminpanel] edit fallback failed: {e}")
+            LOGGER.error(f"[adminpanel] rich edit failed: {e}")
         return
 
     # ── Send mode ──
     update = update_or_query
     chat_id = update.effective_chat.id
 
-    if RICH_UI_OK and PYRO_OK and _rich_send is not None:
-        try:
-            result = await _rich_send(_Waifuu, chat_id, html_text, reply_markup=kb)
-            if result:
-                return
-        except Exception as e:
-            LOGGER.warning(f"[adminpanel] rich send failed: {e}")
-
-    plain = _plain(html_text)
     try:
-        if len(plain) <= 1024:
-            await update.message.reply_photo(
-                photo=BANNER_URL, caption=plain, reply_markup=kb, parse_mode='HTML',
-            )
-        else:
-            try:
-                await update.message.reply_photo(photo=BANNER_URL)
-            except Exception:
-                pass
-            await update.message.reply_text(plain, reply_markup=kb, parse_mode='HTML')
-    except Exception:
-        try:
-            await update.message.reply_text(plain, reply_markup=kb, parse_mode='HTML')
-        except Exception as e:
-            LOGGER.error(f"[adminpanel] text fallback failed: {e}")
+        result = await _rich_send(_Waifuu, chat_id, html_text, reply_markup=kb)
+        if not result:
+            LOGGER.error("[adminpanel] rich send returned None")
+    except Exception as e:
+        LOGGER.error(f"[adminpanel] rich send failed: {e}")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -389,7 +301,6 @@ async def _send_panel(update_or_query, html_text: str, *, kb=None, edit: bool = 
 # ══════════════════════════════════════════════════════════════
 def _panel_home_kb(user_id: int) -> InlineKeyboardMarkup:
     is_owner = _is_owner(user_id)
-
     keys = [
         ("char", "🎴 Cʜᴀʀᴀᴄᴛᴇʀ"),
         ("spawn", "🎯 Sᴘᴀᴡɴ"),
@@ -407,17 +318,13 @@ def _panel_home_kb(user_id: int) -> InlineKeyboardMarkup:
     rows = []
     for i in range(0, len(keys), 2):
         pair = keys[i:i + 2]
-        row = [
-            InlineKeyboardButton(label, callback_data=f"apanel:cat:{key}")
-            for key, label in pair
-        ]
+        row = [InlineKeyboardButton(label, callback_data=f"apanel:cat:{key}") for key, label in pair]
         rows.append(row)
 
     rows.append([
         InlineKeyboardButton("🌐 Sᴜᴘᴘᴏʀᴛ", url=f"https://t.me/{SUPPORT_CHAT}")
         if SUPPORT_CHAT else InlineKeyboardButton("❌ Cʟᴏsᴇ", callback_data="apanel:close")
     ])
-
     return InlineKeyboardMarkup(rows)
 
 
