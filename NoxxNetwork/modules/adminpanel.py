@@ -1,7 +1,8 @@
 """
-Admin Panel — Interactive list with Rich UI (Stable, like Marketplace)
+Admin Panel — Interactive list with Rich UI (Fixed Fallback)
 """
 import os
+import re
 import html as _html
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -20,7 +21,7 @@ from NoxxNetwork import (
     LOGGER,
 )
 
-# ─── Rich UI (Copied exactly from Marketplace working pattern) ─
+# ─── Rich UI ──────────────────────────────────────────────────
 RICH_UI_OK = False
 _rich_send = _rich_edit = None
 
@@ -176,7 +177,6 @@ def _esc(v) -> str:
 
 
 def _mk_table(headers, rows):
-    """Standard HTML table — let rich UI handle it"""
     parts = ['<table border="1">']
     parts.append("<tr>" + "".join(f"<th>{h}</th>" for h in headers) + "</tr>")
     for r in rows:
@@ -232,12 +232,7 @@ def build_category_view(cat_key: str, user_id: int) -> str:
         args = item.get("args") or ""
         desc = item.get("desc") or ""
 
-        # No newlines, no bold/code in table cells to avoid breaking rich parser
-        if args:
-            cmd_str = f"{_esc(cmd)} {_esc(args)}"
-        else:
-            cmd_str = f"{_esc(cmd)}"
-
+        cmd_str = f"{_esc(cmd)} {_esc(args)}".strip()
         rows.append([cmd_str, _esc(desc)])
 
     table = _mk_table(["Command", "Description"], rows)
@@ -253,64 +248,72 @@ def build_category_view(cat_key: str, user_id: int) -> str:
 
 
 # ══════════════════════════════════════════════════════════════
-# RICH SEND (Exactly like Marketplace.py)
+# PLAIN FALLBACK (Fixes the <table> crash)
+# ══════════════════════════════════════════════════════════════
+def _plain_fallback(html_text: str) -> str:
+    t = str(html_text)
+    t = re.sub(r'<img\b[^>]*/?>', '', t, flags=re.I)
+    t = re.sub(r'<h[1-6][^>]*>(.*?)</h[1-6]>', r'\n<b>\1</b>\n', t, flags=re.I|re.S)
+    t = re.sub(r'<blockquote[^>]*>(.*?)</blockquote>', r'\n\1\n', t, flags=re.I|re.S)
+    
+    # Convert table to pipes
+    t = re.sub(r'</t[dh]>', ' | ', t, flags=re.I)
+    t = re.sub(r'</tr>', '\n', t, flags=re.I)
+    t = re.sub(r'</?(?:table|thead|tbody|tr|th|td)[^>]*>', '', t, flags=re.I)
+    
+    t = re.sub(r'\s*\|\s*\n', '\n', t)
+    t = re.sub(r'\|\s*$', '', t, flags=re.M)
+    t = re.sub(r'\n{3,}', '\n\n', t)
+    return t.strip()
+
+
+# ══════════════════════════════════════════════════════════════
+# SEND LOGIC
 # ══════════════════════════════════════════════════════════════
 async def _send(update_or_query, html_text: str, *, kb=None, edit: bool = False):
-    """Send or edit, always try rich first, fallback to plain HTML."""
-    
-    # ── SEND MODE ──
-    if not edit:
-        update = update_or_query
-        chat_id = update.effective_chat.id
-        
-        # Try rich
-        if RICH_UI_OK and PYRO_OK and _rich_send is not None:
+    if edit:
+        q = update_or_query
+        # Try rich edit
+        if RICH_UI_OK and PYRO_OK and _rich_edit:
             try:
-                result = await _rich_send(_Waifuu, chat_id, html_text, reply_markup=kb)
-                if result:
-                    return
+                res = await _rich_edit(_Waifuu, html_text, chat_id=q.message.chat.id, message_id=q.message.message_id, reply_markup=kb)
+                if res: return
             except Exception as e:
-                LOGGER.warning(f"[adminpanel] rich send failed: {e}")
+                LOGGER.warning(f"[adminpanel] rich edit failed: {e}")
                 
-        # Fallback to plain HTML if rich fails
-        import re
-        plain = re.sub(r'<img\b[^>]*/?>', '', html_text, flags=re.I)
-        plain = re.sub(r'<h[1-6][^>]*>(.*?)</h[1-6]>', r'\n<b>\1</b>\n', plain, flags=re.I|re.S)
-        plain = re.sub(r'<blockquote[^>]*>(.*?)</blockquote>', r'\n\1\n', plain, flags=re.I|re.S)
+        # Fallback
         try:
-            await update.message.reply_text(plain, reply_markup=kb, parse_mode='HTML')
-        except Exception:
-            pass
+            await q.edit_message_text(_plain_fallback(html_text), reply_markup=kb, parse_mode='HTML')
+        except Exception as e:
+            LOGGER.error(f"[adminpanel] fallback edit failed: {e}")
         return
 
-    # ── EDIT MODE ──
-    q = update_or_query
-    
-    if RICH_UI_OK and PYRO_OK and _rich_edit is not None:
+    update = update_or_query
+    chat_id = update.effective_chat.id
+
+    # Try rich send
+    if RICH_UI_OK and PYRO_OK and _rich_send:
         try:
-            result = await _rich_edit(
-                _Waifuu, html_text,
-                chat_id=q.message.chat.id, message_id=q.message.message_id, 
-                reply_markup=kb,
-            )
-            if result:
-                return
+            res = await _rich_send(_Waifuu, chat_id, html_text, reply_markup=kb)
+            if res: return
         except Exception as e:
-            LOGGER.warning(f"[adminpanel] rich edit failed: {e}")
-            
-    # Fallback
-    import re
-    plain = re.sub(r'<img\b[^>]*/?>', '', html_text, flags=re.I)
-    plain = re.sub(r'<h[1-6][^>]*>(.*?)</h[1-6]>', r'\n<b>\1</b>\n', plain, flags=re.I|re.S)
-    plain = re.sub(r'<blockquote[^>]*>(.*?)</blockquote>', r'\n\1\n', plain, flags=re.I|re.S)
+            LOGGER.warning(f"[adminpanel] rich send failed: {e}")
+
+    # Fallback (PTB)
     try:
-        await q.edit_message_text(plain, reply_markup=kb, parse_mode='HTML')
-    except Exception:
-        pass
+        await update.message.reply_text(_plain_fallback(html_text), reply_markup=kb, parse_mode='HTML')
+    except Exception as e:
+        LOGGER.error(f"[adminpanel] fallback send failed: {e}")
+        # Ultimate fallback without HTML tags
+        try:
+            clean_text = re.sub(r'<[^>]+>', '', html_text)
+            await update.message.reply_text(clean_text, reply_markup=kb)
+        except Exception:
+            pass
 
 
 # ══════════════════════════════════════════════════════════════
-# KEYBOARDS
+# KEYBOARDS & HANDLERS
 # ══════════════════════════════════════════════════════════════
 def _panel_home_kb(user_id: int) -> InlineKeyboardMarkup:
     is_owner = _is_owner(user_id)
@@ -334,14 +337,10 @@ def _panel_home_kb(user_id: int) -> InlineKeyboardMarkup:
     ])
     return InlineKeyboardMarkup(rows)
 
-
 def _panel_cat_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton("◀ Bᴀᴄᴋ ᴛᴏ Pᴀɴᴇʟ", callback_data="apanel:home")]])
 
 
-# ══════════════════════════════════════════════════════════════
-# HANDLERS
-# ══════════════════════════════════════════════════════════════
 async def adminpanel(update: Update, context: CallbackContext) -> None:
     user = update.effective_user
     if not _is_sudo(user.id):
@@ -374,8 +373,5 @@ async def adminpanel_callback(update: Update, context: CallbackContext) -> None:
         return
 
 
-# ══════════════════════════════════════════════════════════════
-# HANDLER REGISTRATION
-# ══════════════════════════════════════════════════════════════
 application.add_handler(CommandHandler(["adminpanel", "adminhelp", "commands"], adminpanel, block=False))
 application.add_handler(CallbackQueryHandler(adminpanel_callback, pattern=r'^apanel:', block=False))
